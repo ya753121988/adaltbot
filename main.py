@@ -228,11 +228,13 @@ async def web_ui():
 
             .post-content img { width:100%; height:180px; object-fit:cover; display:block; border-radius: 10px; }
             
-            .tag { position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); padding:6px 12px; border-radius:20px; font-weight:bold; font-size:12px; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-            .tag-locked { background:rgba(0,0,0,0.8); color:#f87171; border: 1px solid #f87171; }
-            .tag-unlocked { background:rgba(0,0,0,0.8); color:#10b981; border: 1px solid #10b981; }
+            /* ট্যাগ পজিশন ঠিক করা হয়েছে (Top-Right) */
+            .tag { position:absolute; top:10px; right:10px; padding:4px 8px; border-radius:8px; font-weight:bold; font-size:11px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+            .tag-locked { background:rgba(0,0,0,0.85); color:#f87171; border: 1px solid #f87171; }
+            .tag-unlocked { background:rgba(0,0,0,0.85); color:#10b981; border: 1px solid #10b981; }
             
-            .card-footer { padding:10px 5px; font-size:13px; font-weight:bold; text-align:center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color:#e2e8f0; }
+            /* টাইটেল যাতে পুরোটা দেখায় তার জন্য আপডেট করা হয়েছে */
+            .card-footer { padding:10px; font-size:13px; font-weight:bold; text-align:center; word-wrap: break-word; color:#e2e8f0; line-height:1.4; }
             
             .skeleton { background: #1e293b; border-radius: 12px; height: 215px; overflow: hidden; position: relative; }
             .skeleton::after { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: shimmer 1.5s infinite; }
@@ -329,7 +331,7 @@ async def web_ui():
                     } else {
                         const html = data.map(m => {
                             let tagHtml = m.is_unlocked 
-                                ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i> 24h Unlocked</div>` 
+                                ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i> Unlocked</div>` 
                                 : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i> Locked</div>`;
                                 
                             return `
@@ -443,7 +445,7 @@ async def send_file(d: dict = Body(...)):
             time_cfg = await db.settings.find_one({"id": "del_time"})
             del_minutes = time_cfg['minutes'] if time_cfg else 60
             
-            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @TGLinkBase"
+            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @MovieeBD"
             
             sent_msg = None
             if m.get("file_type") == "video": sent_msg = await bot.send_video(uid, m['file_id'], caption=caption, parse_mode="HTML")

@@ -1,6 +1,7 @@
 import os, asyncio, datetime, uvicorn
-from fastapi import FastAPI, Body, Request
+from fastapi import FastAPI, Body
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -16,7 +17,15 @@ APP_URL = os.getenv("APP_URL")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = FastAPI()
-scheduler = AsyncIOScheduler()
+
+# CORS সেটআপ (যাতে API ব্লক না হয়)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # MongoDB কানেকশন
 client = AsyncIOMotorClient(MONGO_URL)
@@ -36,7 +45,7 @@ async def start_cmd(message: types.Message):
             "👋 **হ্যালো অ্যাডমিন!**\n\n"
             "⚙️ অ্যাড আইডি সেট: `/setad [ID]`\n"
             "🔗 চ্যানেল লিঙ্ক সেট: `/setlink [URL]`\n\n"
-            "📥 মুভি অ্যাড করতে প্রথমে ভিডিও ফাইল পাঠান।"
+            "📥 মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।"
         )
     else:
         text = f"👋 **স্বাগতম {message.from_user.first_name}!**\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
@@ -63,8 +72,16 @@ async def set_link(message: types.Message):
 @dp.message(F.document | F.video)
 async def catch_file(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
-    fid = message.document.file_id if message.document else message.video.file_id
-    admin_temp[message.from_user.id] = fid
+    
+    # ভিডিও নাকি ডকুমেন্ট তা চেক করা হচ্ছে
+    if message.video:
+        fid = message.video.file_id
+        ftype = "video"
+    else:
+        fid = message.document.file_id
+        ftype = "document"
+        
+    admin_temp[message.from_user.id] = {"file_id": fid, "type": ftype}
     await message.answer("✅ ফাইল পেয়েছি! এখন লিখুন: `নাম | থাম্বনেইল লিঙ্ক`")
 
 @dp.message(F.text)
@@ -75,18 +92,20 @@ async def save_movie(message: types.Message):
     try:
         title, thumb = message.text.split("|")
         await db.movies.insert_one({
-            "title": title.strip(), "thumbnail": thumb.strip(),
-            "file_id": admin_temp[uid], "created_at": datetime.datetime.utcnow()
+            "title": title.strip(), 
+            "thumbnail": thumb.strip(),
+            "file_id": admin_temp[uid]["file_id"], 
+            "file_type": admin_temp[uid]["type"],
+            "created_at": datetime.datetime.utcnow()
         })
         del admin_temp[uid]
         await message.answer("🎉 মুভিটি অ্যাপে যুক্ত করা হয়েছে!")
     except Exception as e: await message.answer(f"এরর: {e}")
 
-# --- ২. ওয়েব অ্যাপ UI (ফুল ডিজাইন + ফিক্সড লজিক) ---
+# --- ২. ওয়েব অ্যাপ UI (ফুল ডিজাইন) ---
 
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
-    # সেটিংস রিড করা
     ad_cfg = await db.settings.find_one({"id": "ad_config"})
     link_cfg = await db.settings.find_one({"id": "tg_link"})
     zone_id = ad_cfg['zone_id'] if ad_cfg else "10916755"
@@ -130,7 +149,8 @@ async def web_ui():
             <div class="logo">MovieZone <span>BD</span></div>
             <div class="user-info">
                 <span id="uName">Guest</span>
-                <img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
+                <!-- ফলব্যাক ইমেজ দেওয়া হয়েছে, লিংক কাজ না করলে ডিফল্টটা লোড হবে -->
+                <img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3135/3135715.png'">
             </div>
         </header>
 
@@ -159,11 +179,11 @@ async def web_ui():
         <script>
             let tg = window.Telegram.WebApp; tg.expand();
             let movies = [];
-            const ZONE_ID = \"""" + zone_id + r"""\";
-            const TG_LINK = \"""" + tg_url + r"""\";
+            const ZONE_ID = "{{ZONE_ID}}";
+            const TG_LINK = "{{TG_LINK}}";
 
             // প্রোফাইল ও লিঙ্ক সেটআপ
-            if(tg.initDataUnsafe.user) {
+            if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
                 if(tg.initDataUnsafe.user.photo_url) {
                     document.getElementById('uPic').src = tg.initDataUnsafe.user.photo_url;
@@ -179,14 +199,18 @@ async def web_ui():
             async function load() {
                 try {
                     const r = await fetch('/api/list');
+                    if (!r.ok) throw new Error("API Response not OK");
                     movies = await r.json();
                     render(movies);
-                } catch(e) { document.getElementById('movieGrid').innerHTML = "মুভি লোড হতে পারেনি!"; }
+                } catch(e) { 
+                    console.log(e);
+                    document.getElementById('movieGrid').innerHTML = "<p style='text-align:center;color:red;'>মুভি লোড হতে পারেনি!</p>"; 
+                }
             }
 
             function render(data) {
                 const g = document.getElementById('movieGrid');
-                if(data.length === 0) { g.innerHTML = "কোন মুভি পাওয়া যায়নি!"; return; }
+                if(data.length === 0) { g.innerHTML = "<p style='text-align:center;color:gray;'>কোন মুভি পাওয়া যায়নি!</p>"; return; }
                 g.innerHTML = data.map(m => `
                     <div class="card" onclick="startAd('${m._id}')">
                         <div class="post-content">
@@ -217,15 +241,27 @@ async def web_ui():
             }
 
             async function send(id) {
-                await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId: tg.initDataUnsafe.user.id, movieId: id})});
+                try {
+                    await fetch('/api/send', { 
+                        method:'POST', 
+                        headers:{'Content-Type':'application/json'}, 
+                        body:JSON.stringify({userId: tg.initDataUnsafe.user.id, movieId: id})
+                    });
+                } catch(e) { console.log("Send Error:", e); }
+                
                 document.getElementById('adScreen').style.display = 'none';
                 document.getElementById('successModal').style.display = 'flex';
             }
+            
+            // ডাটা লোড শুরু
             load();
         </script>
     </body>
     </html>
     """
+    
+    # ডায়নামিক ভ্যালু রিপ্লেস
+    html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url)
     return html_code
 
 # --- ৩. API এবং রানার ---
@@ -235,14 +271,27 @@ async def list_movies():
     movies = []
     async for m in db.movies.find().sort("created_at", -1):
         m["_id"] = str(m["_id"])
+        m["created_at"] = str(m.get("created_at", "")) # Datetime Fix
         movies.append(m)
     return movies
 
 @app.post("/api/send")
 async def send_file(d: dict = Body(...)):
-    m = await db.movies.find_one({"_id": ObjectId(d['movieId'])})
-    if m:
-        await bot.send_document(d['userId'], m['file_id'], caption=f"🎥 {m['title']}\nJoin : @BDMovieZoneBot")
+    try:
+        m = await db.movies.find_one({"_id": ObjectId(d['movieId'])})
+        if m:
+            caption_text = f"🎥 {m['title']}\nJoin : @MovieeBD"
+            
+            # ফাইলের ধরন অনুযায়ী সেন্ড করবে (Video/Document)
+            if m.get("file_type") == "video":
+                await bot.send_video(d['userId'], m['file_id'], caption=caption_text)
+            else:
+                await bot.send_document(d['userId'], m['file_id'], caption=caption_text)
+                
+    except Exception as e:
+        print(f"Send File Error: {e}")
+        return {"ok": False, "error": str(e)}
+        
     return {"ok": True}
 
 async def start():

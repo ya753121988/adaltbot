@@ -14,7 +14,7 @@ from pydantic import BaseModel
 # --- কনফিগারেশন ---
 TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URL = os.getenv("MONGO_URI")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0")) # এখানে আপনার আইডি বসানো থাকতে হবে .env ফাইলে
 APP_URL = os.getenv("APP_URL")
 
 bot = Bot(token=TOKEN)
@@ -30,7 +30,6 @@ admin_temp = {}
 
 # --- ব্যাকগ্রাউন্ড অটো-ডিলিট ওয়ার্কার ---
 async def auto_delete_worker():
-    """এই ফাংশনটি প্রতি ১ মিনিট পর পর চেক করবে কোন মুভির সময় শেষ হয়েছে কিনা"""
     while True:
         try:
             now = datetime.datetime.utcnow()
@@ -39,11 +38,11 @@ async def auto_delete_worker():
                 try:
                     await bot.delete_message(chat_id=msg["chat_id"], message_id=msg["message_id"])
                 except Exception:
-                    pass # যদি ইউজার আগেই ডিলিট করে দেয়
+                    pass
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
         except Exception as e:
             print("Auto-Delete Worker Error:", e)
-        await asyncio.sleep(60) # প্রতি ৬০ সেকেন্ড পর পর চেক করবে
+        await asyncio.sleep(60)
 
 # --- ১. বটের কাজ (অ্যাডমিন কমান্ড) ---
 
@@ -55,16 +54,18 @@ async def start_cmd(message: types.Message):
     
     if message.from_user.id == ADMIN_ID:
         text = (
-            "👋 **হ্যালো অ্যাডমিন!**\n\n"
-            "⚙️ **কমান্ড:**\n"
-            "🔸 জোন: `/setad` | টেলিগ্রাম: `/settg` | 18+: `/set18`\n"
-            "🔸 অটো-ডিলিট টাইম: `/settime [মিনিট]` (যেমন: /settime 60)\n"
-            "🔸 ডিলিট: `/del` | স্ট্যাটাস: `/stats` | ব্রডকাস্ট: `/cast`\n\n"
-            "📥 **মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।**"
+            "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
+            "⚙️ <b>কমান্ড:</b>\n"
+            "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
+            "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code> (যেমন: /settime 60)\n"
+            "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n\n"
+            "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
         )
     else:
-        text = f"👋 **স্বাগতম {message.from_user.first_name}!**\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
-    await message.answer(text, reply_markup=markup, parse_mode="Markdown")
+        # সাধারণ ইউজারদের তাদের ID দেখিয়ে দেওয়া হলো, যাতে আপনি অ্যাডমিন আইডি সহজে পান
+        text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{message.from_user.id}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
+        
+    await message.answer(text, reply_markup=markup, parse_mode="HTML")
 
 @dp.message(Command("settime"))
 async def set_del_time(m: types.Message):
@@ -72,9 +73,9 @@ async def set_del_time(m: types.Message):
     try:
         minutes = int(m.text.split(" ")[1])
         await db.settings.update_one({"id": "del_time"}, {"$set": {"minutes": minutes}}, upsert=True)
-        await m.answer(f"✅ অটো-ডিলিট টাইম সেট করা হয়েছে: `{minutes}` মিনিট।")
+        await m.answer(f"✅ অটো-ডিলিট টাইম সেট করা হয়েছে: <b>{minutes}</b> মিনিট।", parse_mode="HTML")
     except:
-        await m.answer("⚠️ ভুল ফরম্যাট! নিয়ম: `/settime 60` (৬০ মিনিট মানে ১ ঘন্টা)")
+        await m.answer("⚠️ ভুল ফরম্যাট! নিয়ম: <code>/settime 60</code> (৬০ মিনিট মানে ১ ঘন্টা)", parse_mode="HTML")
 
 @dp.message(Command("stats"))
 async def stats_cmd(m: types.Message):
@@ -83,13 +84,13 @@ async def stats_cmd(m: types.Message):
     mc = await db.movies.count_documents({})
     time_cfg = await db.settings.find_one({"id": "del_time"})
     del_m = time_cfg['minutes'] if time_cfg else 60
-    await m.answer(f"📊 **স্ট্যাটাস:**\n👥 মোট ইউজার: `{uc}`\n🎬 মোট মুভি: `{mc}`\n⏳ অটো-ডিলিট: `{del_m} মিনিট`")
+    await m.answer(f"📊 <b>স্ট্যাটাস:</b>\n👥 মোট ইউজার: <code>{uc}</code>\n🎬 মোট মুভি: <code>{mc}</code>\n⏳ অটো-ডিলিট: <code>{del_m} মিনিট</code>", parse_mode="HTML")
 
 @dp.message(Command("cast"))
 async def broadcast_cmd(m: types.Message):
     if m.from_user.id != ADMIN_ID: return
     text = m.text.replace("/cast", "").strip()
-    if not text: return await m.answer("⚠️ নিয়ম: `/cast মেসেজ`")
+    if not text: return await m.answer("⚠️ নিয়ম: <code>/cast মেসেজ</code>", parse_mode="HTML")
     await m.answer("⏳ ব্রডকাস্ট শুরু হয়েছে...")
     success = 0
     async for u in db.users.find():
@@ -107,7 +108,7 @@ async def catch_file(m: types.Message):
     fid = m.video.file_id if m.video else m.document.file_id
     ftype = "video" if m.video else "document"
     admin_temp[m.from_user.id] = {"step": "photo", "file_id": fid, "type": ftype}
-    await m.answer("✅ ফাইল পেয়েছি! এবার মুভির **পোস্টার (Photo)** সেন্ড করুন।")
+    await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।", parse_mode="HTML")
 
 @dp.message(F.photo)
 async def catch_photo(m: types.Message):
@@ -116,7 +117,7 @@ async def catch_photo(m: types.Message):
     if uid in admin_temp and admin_temp[uid].get("step") == "photo":
         admin_temp[uid]["photo_id"] = m.photo[-1].file_id
         admin_temp[uid]["step"] = "title"
-        await m.answer("✅ পোস্টার পেয়েছি! এবার মুভির **নাম** লিখে পাঠান।")
+        await m.answer("✅ পোস্টার পেয়েছি! এবার মুভির <b>নাম</b> লিখে পাঠান।", parse_mode="HTML")
 
 @dp.message(F.text)
 async def catch_text(m: types.Message):
@@ -126,7 +127,7 @@ async def catch_text(m: types.Message):
         title = m.text.strip()
         await db.movies.insert_one({"title": title, "photo_id": admin_temp[uid]["photo_id"], "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], "created_at": datetime.datetime.utcnow()})
         del admin_temp[uid]
-        await m.answer(f"🎉 **{title}** অ্যাপে সফলভাবে যুক্ত করা হয়েছে!")
+        await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
 
 @dp.message(Command("del"))
 async def del_movie_list(m: types.Message):
@@ -150,20 +151,32 @@ async def del_movie_callback(c: types.CallbackQuery):
 @dp.message(Command("setad"))
 async def set_ad(m: types.Message):
     if m.from_user.id == ADMIN_ID:
-        await db.settings.update_one({"id": "ad_config"}, {"$set": {"zone_id": m.text.split(" ")[1]}}, upsert=True)
-        await m.answer("✅ জোন আপডেট হয়েছে।")
+        try:
+            val = m.text.split(" ")[1]
+            await db.settings.update_one({"id": "ad_config"}, {"$set": {"zone_id": val}}, upsert=True)
+            await m.answer(f"✅ জোন আপডেট হয়েছে: {val}")
+        except:
+            await m.answer("⚠️ সঠিক নিয়ম: `/setad 1234567`")
 
 @dp.message(Command("settg"))
 async def set_tg(m: types.Message):
     if m.from_user.id == ADMIN_ID:
-        await db.settings.update_one({"id": "link_tg"}, {"$set": {"url": m.text.split(" ")[1]}}, upsert=True)
-        await m.answer("✅ টেলিগ্রাম লিংক আপডেট হয়েছে।")
+        try:
+            val = m.text.split(" ")[1]
+            await db.settings.update_one({"id": "link_tg"}, {"$set": {"url": val}}, upsert=True)
+            await m.answer("✅ টেলিগ্রাম লিংক আপডেট হয়েছে।")
+        except:
+            await m.answer("⚠️ সঠিক নিয়ম: `/settg https://t.me/...`")
 
 @dp.message(Command("set18"))
 async def set_18(m: types.Message):
     if m.from_user.id == ADMIN_ID:
-        await db.settings.update_one({"id": "link_18"}, {"$set": {"url": m.text.split(" ")[1]}}, upsert=True)
-        await m.answer("✅ 18+ লিংক আপডেট হয়েছে।")
+        try:
+            val = m.text.split(" ")[1]
+            await db.settings.update_one({"id": "link_18"}, {"$set": {"url": val}}, upsert=True)
+            await m.answer("✅ 18+ লিংক আপডেট হয়েছে।")
+        except:
+            await m.answer("⚠️ সঠিক নিয়ম: `/set18 https://t.me/...`")
 
 # --- ২. ওয়েব অ্যাপ UI ---
 
@@ -255,6 +268,7 @@ async def web_ui():
             <p>সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
         </div>
 
+        <!-- Success Modal (FIXED) -->
         <div id="successModal" class="modal">
             <div class="modal-content">
                 <i class="fa-solid fa-circle-check" style="font-size:60px; color:#10b981;"></i>
@@ -338,9 +352,9 @@ async def web_ui():
 
             window.addEventListener('scroll', () => { if(window.innerHeight + window.scrollY >= document.body.offsetHeight - 200) loadMovies(); });
 
+            // FIXED: Modal show logical bug fixed
             function handleMovieClick(id, isUnlocked) {
                 if(isUnlocked) {
-                    document.getElementById('successModal').style.display = 'flex';
                     sendFile(id);
                 } else {
                     if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
@@ -348,14 +362,21 @@ async def web_ui():
                     let t = 15;
                     let iv = setInterval(() => {
                         t--; document.getElementById('timer').innerText = t;
-                        if(t <= 0) { clearInterval(iv); sendFile(id); }
+                        if(t <= 0) { 
+                            clearInterval(iv); 
+                            sendFile(id); 
+                        }
                     }, 1000);
                 }
             }
 
+            // FIXED: Success modal triggers here after file sent
             async function sendFile(id) {
                 await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId: uid, movieId: id})});
+                
                 document.getElementById('adScreen').style.display = 'none';
+                document.getElementById('successModal').style.display = 'flex'; // <--- THIS WAS MISSING
+                
                 setTimeout(() => { loadMovies(true); }, 1000); 
             }
 
@@ -421,24 +442,22 @@ async def send_file(d: dict = Body(...)):
     try:
         m = await db.movies.find_one({"_id": ObjectId(mid)})
         if m:
-            # ডিলিট টাইম আনা হচ্ছে (ডিফল্ট ৬০ মিনিট)
             time_cfg = await db.settings.find_one({"id": "del_time"})
             del_minutes = time_cfg['minutes'] if time_cfg else 60
             
-            caption = f"🎥 **{m['title']}**\n\n⏳ **সতর্কতা:** কপিরাইট এড়াতে মুভিটি **{del_minutes} মিনিট** পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @MovieeBD"
+            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @MovieeBD"
             
             sent_msg = None
-            if m.get("file_type") == "video": sent_msg = await bot.send_video(uid, m['file_id'], caption=caption)
-            else: sent_msg = await bot.send_document(uid, m['file_id'], caption=caption)
+            if m.get("file_type") == "video": sent_msg = await bot.send_video(uid, m['file_id'], caption=caption, parse_mode="HTML")
+            else: sent_msg = await bot.send_document(uid, m['file_id'], caption=caption, parse_mode="HTML")
             
-            # ডাটাবেসে আনলক টাইম আপডেট (২৪ ঘন্টার জন্য আনলকড)
             await db.user_unlocks.update_one({"user_id": uid, "movie_id": mid}, {"$set": {"unlocked_at": datetime.datetime.utcnow()}}, upsert=True)
             
-            # ডাটাবেসে ডিলিট টাস্ক সেভ করা (ম্যাসেজটি ডিলিট করার জন্য)
             if sent_msg:
                 delete_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=del_minutes)
                 await db.auto_delete.insert_one({"chat_id": uid, "message_id": sent_msg.message_id, "delete_at": delete_at})
-    except: pass
+    except Exception as e: 
+        print("Send File Error:", e)
     return {"ok": True}
 
 class ReqModel(BaseModel):
@@ -446,7 +465,7 @@ class ReqModel(BaseModel):
 
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
-    try: await bot.send_message(ADMIN_ID, f"🔔 **মুভি রিকোয়েস্ট!**\n\n👤 ইউজার: {data.uname} (`{data.uid}`)\n🎬 নাম: **{data.movie}**")
+    try: await bot.send_message(ADMIN_ID, f"🔔 <b>মুভি রিকোয়েস্ট!</b>\n\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 নাম: <b>{data.movie}</b>", parse_mode="HTML")
     except: pass
     return {"ok": True}
 
@@ -455,7 +474,6 @@ async def start():
     config = uvicorn.Config(app, host="0.0.0.0", port=port, loop="asyncio")
     server = uvicorn.Server(config)
     
-    # অটো ডিলিট ব্যাকগ্রাউন্ড প্রসেস চালু করা হলো
     asyncio.create_task(auto_delete_worker())
     
     await bot.delete_webhook(drop_pending_updates=True)

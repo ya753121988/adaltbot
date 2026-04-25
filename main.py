@@ -11,11 +11,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bson import ObjectId
 from pydantic import BaseModel
 
-# --- কনফিগারেশন ---
-TOKEN = os.getenv("8615600822:AAGj3eUYdhRc0_uK18fpw0UzmgyGrdc9glU")
-MONGO_URL = os.getenv("mongodb+srv://akash:akash@cluster0.etisrpx.mongodb.net/?appName=Cluster0")
-OWNER_ID = int(os.getenv("ADMIN_ID", "7525127704")) # মেইন ওনার
-APP_URL = os.getenv("https://rare-rori-yeasinvai-bf8e2c68.koyeb.app/")
+# --- কনফিগারেশন (সংশোধিত) ---
+# os.getenv("VARIABLE_NAME", "DEFAULT_VALUE") এই ফরম্যাটে রাখা হয়েছে যাতে ইরোর না আসে
+TOKEN = os.getenv("BOT_TOKEN", "8615600822:AAGj3eUYdhRc0_uK18fpw0UzmgyGrdc9glU")
+MONGO_URL = os.getenv("MONGO_URL", "mongodb+srv://akash:akash@cluster0.etisrpx.mongodb.net/?appName=Cluster0")
+OWNER_ID = int(os.getenv("ADMIN_ID", "7525127704")) 
+APP_URL = os.getenv("APP_URL", "https://rare-rori-yeasinvai-bf8e2c68.koyeb.app/")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -32,8 +33,11 @@ admin_cache = set([OWNER_ID])
 async def load_admins():
     admin_cache.clear()
     admin_cache.add(OWNER_ID)
-    async for admin in db.admins.find():
-        admin_cache.add(admin["user_id"])
+    try:
+        async for admin in db.admins.find():
+            admin_cache.add(admin["user_id"])
+    except Exception as e:
+        print(f"Admin Load Error: {e}")
 
 # --- ব্যাকগ্রাউন্ড অটো-ডিলিট ওয়ার্কার ---
 async def auto_delete_worker():

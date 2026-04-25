@@ -1,6 +1,4 @@
---- START OF FILE Paste April 26, 2026 - 1:10AM ---
-
-import os, asyncio, datetime, uvicorn
+import os, asyncio, datetime, uvicorn, random
 import aiohttp
 from fastapi import FastAPI, Body, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -92,6 +90,56 @@ async def list_admins_cmd(m: types.Message):
         if ad != OWNER_ID: text += f"👮 Admin: <code>{ad}</code>\n"
     await m.answer(text, parse_mode="HTML")
 
+# --- নতুন আনলিমিটেড ডিরেক্ট লিঙ্ক সিস্টেম কমান্ড ---
+@dp.message(Command("addlink"))
+async def add_ad_link(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        url = m.text.split(" ", 1)[1]
+        await db.ad_links.insert_one({"url": url, "created_at": datetime.datetime.utcnow()})
+        await m.answer(f"✅ নতুন অ্যাড লিঙ্ক যুক্ত হয়েছে:\n<code>{url}</code>", parse_mode="HTML")
+    except: await m.answer("⚠️ নিয়ম: `/addlink https://directlink.com`")
+
+@dp.message(Command("links"))
+async def list_ad_links(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    links = await db.ad_links.find().to_list(length=100)
+    if not links: return await m.answer("কোনো অ্যাড লিঙ্ক নেই।")
+    text = "🔗 <b>বর্তমান অ্যাড লিঙ্ক সমূহ:</b>\n\n"
+    for i, l in enumerate(links):
+        text += f"{i+1}. <code>{l['url']}</code>\nID: <code>{l['_id']}</code>\n\n"
+    text += "ডিলিট করতে: `/dellink ID` লিখুন।"
+    await m.answer(text, parse_mode="HTML")
+
+@dp.message(Command("dellink"))
+async def del_ad_link(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        link_id = m.text.split(" ", 1)[1]
+        await db.ad_links.delete_one({"_id": ObjectId(link_id)})
+        await m.answer("✅ লিঙ্কটি ডিলিট করা হয়েছে।")
+    except: await m.answer("⚠️ নিয়ম: `/dellink ID` (ID পাবেন /links কমান্ডে)")
+
+# --- নতুন অ্যাড সুইচ কমান্ড ---
+@dp.message(Command("monetag"))
+async def toggle_monetag(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        status = m.text.split(" ")[1].lower() == "on"
+        await db.settings.update_one({"id": "monetag_status"}, {"$set": {"status": status}}, upsert=True)
+        await m.answer(f"✅ Monetag Ads এখন {'চালু (ON)' if status else 'বন্ধ (OFF)'}")
+    except: await m.answer("⚠️ নিয়ম: `/monetag on` বা `/monetag off`")
+
+@dp.message(Command("adlink"))
+async def toggle_adlink(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        status = m.text.split(" ")[1].lower() == "on"
+        await db.settings.update_one({"id": "adlink_status"}, {"$set": {"status": status}}, upsert=True)
+        await m.answer(f"✅ Direct Link Ads এখন {'চালু (ON)' if status else 'বন্ধ (OFF)'}")
+    except: await m.answer("⚠️ নিয়ম: `/adlink on` বা `/adlink off`")
+
+# --- মূল কোডের বাকি কমান্ডসমূহ ---
 @dp.message(Command("setsteps"))
 async def set_steps_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
@@ -167,7 +215,11 @@ async def start_cmd(message: types.Message):
             "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
             "🔸 আনলক টাইম: <code>/setunlocktime [ঘণ্টা]</code>\n"
             "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
-            "\n🆕 <b>নতুন কমান্ড:</b>\n"
+            "\n🆕 <b>অ্যাড সেটিংস:</b>\n"
+            "🔸 লিঙ্ক অ্যাড: <code>/addlink [URL]</code>\n"
+            "🔸 লিঙ্ক লিস্ট: <code>/links</code>\n"
+            "🔸 লিঙ্ক সুইচ: <code>/adlink on/off</code>\n"
+            "🔸 মনিটেগ সুইচ: <code>/monetag on/off</code>\n"
             "🔸 স্টেপ: <code>/setsteps [সংখ্যা]</code>\n"
             "🔸 নোটিশ: <code>/setnotice [টেক্সট]</code>\n"
             "🔸 হেডার অ্যাড: <code>/sethead [কোড]</code>\n"
@@ -364,6 +416,12 @@ async def web_ui():
     m_ad = await db.settings.find_one({"id": "middle_ad"})
     f_ad = await db.settings.find_one({"id": "footer_ad"})
     
+    # নতুন সেটিংস ফেচ করা
+    monetag_cfg = await db.settings.find_one({"id": "monetag_status"})
+    adlink_cfg = await db.settings.find_one({"id": "adlink_status"})
+    all_links = await db.ad_links.find().to_list(length=100)
+    direct_links = [l['url'] for l in all_links] if all_links else []
+    
     zone_id = ad_cfg['zone_id'] if ad_cfg else "10916755"
     tg_url = tg_cfg['url'] if tg_cfg else "https://t.me/MovieeBD"
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
@@ -373,6 +431,8 @@ async def web_ui():
     header_code = h_ad['code'] if h_ad else ""
     middle_code = m_ad['code'] if m_ad else ""
     footer_code = f_ad['code'] if f_ad else ""
+    monetag_on = monetag_cfg['status'] if monetag_cfg else True
+    adlink_on = adlink_cfg['status'] if adlink_cfg else False
 
     html_code = r"""
     <!DOCTYPE html>
@@ -453,7 +513,7 @@ async def web_ui():
             .btn-tg { bottom:95px; background:#24A1DE; }
             .btn-req { bottom:35px; background:#10b981; }
 
-            /* অ্যাড স্ক্রিন নতুন ডিজাইন */
+            /* অ্যাড স্ক্রিন নতুন ডিজাইন (ক্লিক সিস্টেমের জন্য আপডেট করা) */
             .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; padding: 20px; }
             .ad-poster-img { width: 100%; max-width: 300px; height: 180px; object-fit: cover; border-radius: 15px; margin-bottom: 20px; border: 2px solid #f87171; }
             .progress-container { width: 100%; max-width: 300px; background: #1e293b; height: 10px; border-radius: 5px; margin-bottom: 10px; overflow: hidden; }
@@ -462,6 +522,10 @@ async def web_ui():
             .percent-text { font-size: 14px; color: #94a3b8; margin-bottom: 15px; }
             .timer { width:80px; height:80px; border-radius:50%; border:5px solid red; display:flex; align-items:center; justify-content:center; font-size:30px; margin-bottom:20px; color:red; font-weight:bold; }
             
+            /* নতুন বাটন ডিজাইন */
+            .btn-visit { background:#f87171; color:white; border:none; padding:15px 30px; border-radius:30px; font-size:18px; font-weight:bold; cursor:pointer; width:80%; text-align:center; text-decoration:none; display:block; margin-top:10px;}
+            .btn-next { background:#10b981; color:white; border:none; padding:15px 30px; border-radius:30px; font-size:18px; font-weight:bold; cursor:pointer; display:none; width:80%; margin-top:10px; }
+
             .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:none; align-items:center; justify-content:center; z-index:3000; }
             .modal-content { background:#1e293b; width:90%; padding:30px; border-radius:15px; text-align:center; }
             .req-input { width: 100%; padding: 12px; margin: 15px 0; border-radius: 8px; border: none; background: #0f172a; color: white; outline:none; }
@@ -507,8 +571,11 @@ async def web_ui():
             <div class="step-text" id="stepLabel">Step 1/2</div>
             <div class="percent-text" id="percentLabel">0% Completed</div>
             <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
-            <div class="timer" id="timer">15</div>
-            <p id="adMsg">সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
+            <div class="timer" id="timer">0</div>
+            <p id="adMsg" style="text-align:center; margin-bottom:15px;">নিচের বাটনে ক্লিক করে অ্যাড দেখুন এবং মুভি আনলক করুন।</p>
+            
+            <a href="#" target="_blank" class="btn-visit" id="btnVisit" onclick="startTimer()">Visit Ad & Unlock</a>
+            <button class="btn-next" id="btnNext" onclick="handleNextStep()">Next Step <i class="fa-solid fa-arrow-right"></i></button>
         </div>
 
         <div id="successModal" class="modal">
@@ -536,20 +603,27 @@ async def web_ui():
         <script>
             let tg = window.Telegram.WebApp; tg.expand();
             const ZONE_ID = "{{ZONE_ID}}";
+            const MONETAG_ON = {{MONETAG_ON}};
+            const ADLINK_ON = {{ADLINK_ON}};
+            const DIRECT_LINKS = {{DIRECT_LINKS}};
+            const TOTAL_STEPS = {{TOTAL_STEPS}};
             
             let currentPage = 1; let isLoading = false; let searchQuery = "";
             let uid = tg.initDataUnsafe.user?.id || 0;
             let currentAdStep = 1;
-            const totalAdSteps = {{TOTAL_STEPS}};
+            let currentMovieId = "";
 
             if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
                 if(tg.initDataUnsafe.user.photo_url) document.getElementById('uPic').src = tg.initDataUnsafe.user.photo_url;
             }
 
-            const s = document.createElement('script');
-            s.src = '//libtl.com/sdk.js'; s.setAttribute('data-zone', ZONE_ID); s.setAttribute('data-sdk', 'show_' + ZONE_ID);
-            document.head.appendChild(s);
+            // Monetag লোড (যদি ON থাকে)
+            if(MONETAG_ON) {
+                const s = document.createElement('script');
+                s.src = '//libtl.com/sdk.js'; s.setAttribute('data-zone', ZONE_ID); s.setAttribute('data-sdk', 'show_' + ZONE_ID);
+                document.head.appendChild(s);
+            }
 
             function drawSkeletons(count) {
                 let html = ""; for(let i=0; i<count; i++) html += `<div class="skeleton"></div>`; return html;
@@ -657,42 +731,67 @@ async def web_ui():
                 if(isUnlocked) {
                     sendFile(id);
                 } else {
+                    currentMovieId = id;
                     currentAdStep = 1;
                     document.getElementById('adMoviePoster').src = `/api/image/${photoId}`;
-                    startAdStep(id);
+                    showAdScreen();
                 }
             }
 
-            function startAdStep(id) {
-                // প্রতিটি স্টেপেই অ্যাড স্ক্রিপ্টকে পুনরায় কল করা হচ্ছে (Single by Single Ads)
-                if (typeof window['show_' + ZONE_ID] === 'function') {
-                    window['show_' + ZONE_ID]();
-                }
-
-                document.getElementById('adMsg').innerText = "অ্যাড লোড হচ্ছে (" + currentAdStep + "/" + totalAdSteps + "), অপেক্ষা করুন...";
+            function showAdScreen() {
                 document.getElementById('adScreen').style.display = 'flex';
-                
-                let progress = Math.round(((currentAdStep - 1) / totalAdSteps) * 100);
-                document.getElementById('stepLabel').innerText = `Step ${currentAdStep}/${totalAdSteps}`;
+                document.getElementById('stepLabel').innerText = `Step ${currentAdStep}/${TOTAL_STEPS}`;
+                let progress = Math.round(((currentAdStep - 1) / TOTAL_STEPS) * 100);
                 document.getElementById('percentLabel').innerText = `${progress}% Completed`;
                 document.getElementById('progressBar').style.width = `${progress}%`;
                 
+                document.getElementById('btnVisit').style.display = 'block';
+                document.getElementById('btnVisit').style.pointerEvents = 'auto';
+                document.getElementById('btnVisit').style.opacity = '1';
+                document.getElementById('btnNext').style.display = 'none';
+                document.getElementById('timer').innerText = "15";
+                document.getElementById('adMsg').innerText = "নিচের বাটনে ক্লিক করে অ্যাডটি ওপেন করুন";
+
+                // ডিরেক্ট লিঙ্ক সেট করা (যদি ON থাকে)
+                let linkToOpen = "#";
+                if(ADLINK_ON && DIRECT_LINKS.length > 0) {
+                    linkToOpen = DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)];
+                }
+                document.getElementById('btnVisit').href = linkToOpen;
+            }
+
+            function startTimer() {
+                // Monetag দেখানো
+                if(MONETAG_ON && typeof window['show_' + ZONE_ID] === 'function') {
+                    window['show_' + ZONE_ID]();
+                }
+
                 let t = 15;
-                document.getElementById('timer').innerText = t;
+                document.getElementById('btnVisit').style.pointerEvents = 'none';
+                document.getElementById('btnVisit').style.opacity = '0.5';
+                document.getElementById('adMsg').innerText = "অ্যাড দেখা হচ্ছে, দয়া করে কিছুক্ষণ অপেক্ষা করুন...";
+                
                 let iv = setInterval(() => {
-                    t--; document.getElementById('timer').innerText = t;
-                    if(t <= 0) { 
-                        clearInterval(iv); 
-                        if(currentAdStep < totalAdSteps) {
-                            currentAdStep++;
-                            startAdStep(id); // পরের স্টেপ শুরু এবং নতুন অ্যাড লোড
-                        } else {
-                            document.getElementById('progressBar').style.width = `100%`;
-                            document.getElementById('percentLabel').innerText = `100% Completed`;
-                            sendFile(id); 
-                        }
+                    t--;
+                    document.getElementById('timer').innerText = t;
+                    if(t <= 0) {
+                        clearInterval(iv);
+                        document.getElementById('btnVisit').style.display = 'none';
+                        document.getElementById('btnNext').style.display = 'block';
+                        document.getElementById('adMsg').innerText = "এই ধাপটি সফলভাবে সম্পন্ন হয়েছে! Next বাটনে ক্লিক করুন।";
                     }
                 }, 1000);
+            }
+
+            function handleNextStep() {
+                if(currentAdStep < TOTAL_STEPS) {
+                    currentAdStep++;
+                    showAdScreen();
+                } else {
+                    document.getElementById('progressBar').style.width = `100%`;
+                    document.getElementById('percentLabel').innerText = `100% Completed`;
+                    sendFile(currentMovieId);
+                }
             }
 
             async function sendFile(id) {
@@ -722,6 +821,11 @@ async def web_ui():
     final_html = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{SITE_NAME}}", site_name)
     final_html = final_html.replace("{{NOTICE_TEXT}}", notice_text).replace("{{TOTAL_STEPS}}", str(total_steps))
     final_html = final_html.replace("{{HEADER_AD}}", header_code).replace("{{MIDDLE_AD}}", middle_code).replace("{{FOOTER_AD}}", footer_code)
+    
+    # নতুন সুইচ এবং লিঙ্কের ভ্যালু রিপ্লেস
+    final_html = final_html.replace("{{MONETAG_ON}}", "true" if monetag_on else "false")
+    final_html = final_html.replace("{{ADLINK_ON}}", "true" if adlink_on else "false")
+    final_html = final_html.replace("{{DIRECT_LINKS}}", str(direct_links))
     
     return final_html
 

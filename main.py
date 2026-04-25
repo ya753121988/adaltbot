@@ -477,7 +477,7 @@ async def web_ui():
             
             /* ১ কলাম গ্রিড ও ল্যান্ডস্কেপ কার্ড (Desktop & Mobile) */
             .grid { padding:0 15px 20px; display: grid; grid-template-columns: 1fr; gap: 20px; }
-            .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s; border: 1px solid #334155; }
+            .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s; border: 1px solid #334155; position: relative;}
             .card:active { transform: scale(0.98); }
             
             .post-content { 
@@ -490,10 +490,16 @@ async def web_ui():
             /* ল্যান্ডস্কেপ ইমেজ হাইট */
             .post-content img { width:100%; height:200px; object-fit:cover; display:block; border-radius: 10px; }
             
-            .tag { position:absolute; top:8px; right:8px; padding:4px 6px; border-radius:6px; font-weight:bold; font-size:10px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+            .tag { position:absolute; top:8px; right:8px; padding:4px 6px; border-radius:6px; font-weight:bold; font-size:10px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 100;}
             .tag-locked { background:rgba(0,0,0,0.85); color:#f87171; border: 1px solid #f87171; }
             .tag-unlocked { background:rgba(0,0,0,0.85); color:#10b981; border: 1px solid #10b981; }
             
+            /* পোস্টারের উপরে স্টেপ ওভারলে */
+            .step-overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: #f87171; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; border: 1px solid #f87171; z-index: 100; }
+            
+            /* আনলক টাইমার ওভারলে */
+            .unlock-timer { position: absolute; top: 10px; right: 10px; background: rgba(16, 185, 129, 0.9); color: white; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; z-index: 101; display: none; }
+
             .top-badge { position:absolute; top:8px; left:8px; background:red; color:white; padding:3px 6px; border-radius:6px; font-size:10px; font-weight:bold; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index:10;}
             .view-badge { position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.7); color:#fff; padding:3px 6px; border-radius:6px; font-size:11px; font-weight:bold; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
 
@@ -570,6 +576,7 @@ async def web_ui():
             <img id="adMoviePoster" class="ad-poster-img" src="">
             <div class="step-text" id="stepLabel">Step 1/2</div>
             <div class="percent-text" id="percentLabel">0% Completed</div>
+            <div id="adsRemaining" style="font-size: 14px; color: #f87171; margin-bottom: 10px; font-weight: bold;"></div>
             <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
             <div class="timer" id="timer">0</div>
             <p id="adMsg" style="text-align:center; margin-bottom:15px;">নিচের বাটনে ক্লিক করে অ্যাড দেখুন এবং মুভি আনলক করুন।</p>
@@ -643,6 +650,31 @@ async def web_ui():
                 }, 3000);
             }
 
+            function formatTime(seconds) {
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = Math.floor(seconds % 60);
+                return `${h}h ${m}m ${s}s`;
+            }
+
+            function startLiveCountdown(elementId, seconds) {
+                let timeLeft = seconds;
+                const element = document.getElementById(elementId);
+                if (!element) return;
+                
+                const interval = setInterval(() => {
+                    timeLeft--;
+                    if (timeLeft <= 0) {
+                        element.style.display = 'none';
+                        clearInterval(interval);
+                        loadMovies(currentPage);
+                    } else {
+                        element.innerText = formatTime(timeLeft);
+                        element.style.display = 'block';
+                    }
+                }, 1000);
+            }
+
             async function loadTrending() {
                 try {
                     const r = await fetch(`/api/trending?uid=${uid}`);
@@ -654,17 +686,27 @@ async def web_ui():
                     }
                     grid.innerHTML = data.map(m => {
                         let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
-                        return `
+                        let timerHtml = m.is_unlocked ? `<div class="unlock-timer" id="trend_timer_${m._id}"></div>` : `<div class="step-overlay">Steps: 0/${TOTAL_STEPS}</div>`;
+                        
+                        const html = `
                         <div class="trending-card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked}, '${m.photo_id}')">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
+                                ${timerHtml}
                                 <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
                                 ${tagHtml}
                                 <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
                             </div>
                             <div class="card-footer" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${m.title}</div>
                         </div>`;
+                        
+                        return html;
                     }).join('');
+                    
+                    data.forEach(m => {
+                        if(m.is_unlocked && m.rem_sec > 0) startLiveCountdown(`trend_timer_${m._id}`, m.rem_sec);
+                    });
+
                     setTimeout(startAutoScroll, 2000);
                 } catch(e) {}
             }
@@ -686,9 +728,12 @@ async def web_ui():
                     } else {
                         grid.innerHTML = data.movies.map(m => {
                             let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
+                            let timerHtml = m.is_unlocked ? `<div class="unlock-timer" id="list_timer_${m._id}"></div>` : `<div class="step-overlay">Steps: 0/${TOTAL_STEPS}</div>`;
+                            
                             return `
                             <div class="card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked}, '${m.photo_id}')">
                                 <div class="post-content">
+                                    ${timerHtml}
                                     <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
                                     ${tagHtml}
                                     <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
@@ -696,6 +741,11 @@ async def web_ui():
                                 <div class="card-footer">${m.title}</div>
                             </div>`;
                         }).join('');
+                        
+                        data.movies.forEach(m => {
+                            if(m.is_unlocked && m.rem_sec > 0) startLiveCountdown(`list_timer_${m._id}`, m.rem_sec);
+                        });
+                        
                         renderPagination(data.total_pages);
                     }
                 } catch(e) {}
@@ -745,24 +795,42 @@ async def web_ui():
                 document.getElementById('percentLabel').innerText = `${progress}% Completed`;
                 document.getElementById('progressBar').style.width = `${progress}%`;
                 
+                let remaining = TOTAL_STEPS - currentAdStep + 1;
+                document.getElementById('adsRemaining').innerText = `বাকি আছে: ${remaining}টি অ্যাড`;
+                
                 document.getElementById('btnVisit').style.display = 'block';
                 document.getElementById('btnVisit').style.pointerEvents = 'auto';
                 document.getElementById('btnVisit').style.opacity = '1';
                 document.getElementById('btnNext').style.display = 'none';
                 document.getElementById('timer').innerText = "15";
-                document.getElementById('adMsg').innerText = "নিচের বাটনে ক্লিক করে অ্যাডটি ওপেন করুন";
-
-                // ডিরেক্ট লিঙ্ক সেট করা (যদি ON থাকে)
-                let linkToOpen = "#";
-                if(ADLINK_ON && DIRECT_LINKS.length > 0) {
-                    linkToOpen = DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)];
+                
+                // ডিরেক্ট লিঙ্ক নাকি মনিটেগ জোন - লজিক আলাদা করা
+                // উদাহরণ: জোড় স্টেপে মনিটেগ, বিজোড় স্টেপে ডিরেক্ট লিঙ্ক (অথবা উল্টো)
+                let useMonetag = false;
+                if(MONETAG_ON && ADLINK_ON) {
+                    useMonetag = (currentAdStep % 2 === 0);
+                } else if(MONETAG_ON) {
+                    useMonetag = true;
                 }
-                document.getElementById('btnVisit').href = linkToOpen;
+                
+                if(useMonetag) {
+                    document.getElementById('adMsg').innerText = "মনিটেগ অ্যাডটি ওপেন করুন এবং মুভি আনলক করুন।";
+                    document.getElementById('btnVisit').href = "#"; // মনিটেগ নিজে লোড হবে
+                } else {
+                    document.getElementById('adMsg').innerText = "ডিরেক্ট লিঙ্ক অ্যাডটি ওপেন করুন এবং মুভি আনলক করুন।";
+                    let linkToOpen = "#";
+                    if(ADLINK_ON && DIRECT_LINKS.length > 0) {
+                        linkToOpen = DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)];
+                    }
+                    document.getElementById('btnVisit').href = linkToOpen;
+                }
+                
+                window.currentUseMonetag = useMonetag;
             }
 
             function startTimer() {
-                // Monetag দেখানো
-                if(MONETAG_ON && typeof window['show_' + ZONE_ID] === 'function') {
+                // Monetag দেখানো যদি লজিক অনুযায়ী মনিটেগ স্টেপ হয়
+                if(window.currentUseMonetag && MONETAG_ON && typeof window['show_' + ZONE_ID] === 'function') {
                     window['show_' + ZONE_ID]();
                 }
 
@@ -840,10 +908,13 @@ async def trending_movies(uid: int = 0):
     unlock_cfg = await db.settings.find_one({"id": "unlock_config"})
     u_hours = unlock_cfg['hours'] if unlock_cfg else 24
 
+    unlocked_map = {}
     if uid != 0:
         time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=u_hours)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_movie_ids.append(u["movie_id"])
+            expires_at = u["unlocked_at"] + datetime.timedelta(hours=u_hours)
+            unlocked_map[u["movie_id"]] = int((expires_at - datetime.datetime.utcnow()).total_seconds())
 
     movies = []
     async for m in db.movies.find().sort("clicks", -1).limit(10):
@@ -851,6 +922,7 @@ async def trending_movies(uid: int = 0):
         m["_id"] = m_id
         m["clicks"] = m.get("clicks", 0)
         m["is_unlocked"] = m_id in unlocked_movie_ids 
+        m["rem_sec"] = unlocked_map.get(m_id, 0)
         movies.append(m)
     return movies
 
@@ -868,10 +940,13 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
     u_hours = unlock_cfg['hours'] if unlock_cfg else 24
 
     unlocked_movie_ids = []
+    unlocked_map = {}
     if uid != 0:
         time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=u_hours)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_movie_ids.append(u["movie_id"])
+            expires_at = u["unlocked_at"] + datetime.timedelta(hours=u_hours)
+            unlocked_map[u["movie_id"]] = int((expires_at - datetime.datetime.utcnow()).total_seconds())
 
     movies = []
     async for m in db.movies.find(query).sort("created_at", -1).skip(skip).limit(limit):
@@ -880,6 +955,7 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         m["clicks"] = m.get("clicks", 0)
         m["created_at"] = str(m.get("created_at", ""))
         m["is_unlocked"] = m_id in unlocked_movie_ids 
+        m["rem_sec"] = unlocked_map.get(m_id, 0)
         movies.append(m)
         
     return {"movies": movies, "total_pages": total_pages}

@@ -12,10 +12,10 @@ from bson import ObjectId
 from pydantic import BaseModel
 
 # --- কনফিগারেশন ---
-TOKEN = os.getenv("BOT_TOKEN")
-MONGO_URL = os.getenv("MONGO_URI")
-OWNER_ID = int(os.getenv("ADMIN_ID", "0")) # মেইন ওনার
-APP_URL = os.getenv("APP_URL")
+TOKEN = os.getenv("8615600822:AAGj3eUYdhRc0_uK18fpw0UzmgyGrdc9glU")
+MONGO_URL = os.getenv("mongodb+srv://akash:akash@cluster0.etisrpx.mongodb.net/?appName=Cluster0")
+OWNER_ID = int(os.getenv("ADMIN_ID", "7525127704")) # মেইন ওনার
+APP_URL = os.getenv("https://rare-rori-yeasinvai-bf8e2c68.koyeb.app/")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -24,7 +24,7 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 client = AsyncIOMotorClient(MONGO_URL)
-db = client['movie_databases']
+db = client['movie_database']
 
 admin_temp = {}
 admin_cache = set([OWNER_ID]) 

@@ -99,6 +99,15 @@ async def set_steps_cmd(m: types.Message):
         await m.answer(f"✅ অ্যাড স্টেপ সংখ্যা এখন: <b>{steps}</b>", parse_mode="HTML")
     except: await m.answer("⚠️ নিয়ম: `/setsteps 2`")
 
+@dp.message(Command("setunlocktime"))
+async def set_unlock_time_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        hours = int(m.text.split(" ")[1])
+        await db.settings.update_one({"id": "unlock_config"}, {"$set": {"hours": hours}}, upsert=True)
+        await m.answer(f"✅ মুভি আনলক থাকার সময় সেট করা হয়েছে: <b>{hours} ঘণ্টা</b>", parse_mode="HTML")
+    except: await m.answer("⚠️ নিয়ম: `/setunlocktime 12` (ঘণ্টা হিসেবে)")
+
 @dp.message(Command("setnotice"))
 async def set_notice_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
@@ -154,6 +163,7 @@ async def start_cmd(message: types.Message):
             "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on</code> বা <code>/protect off</code>\n"
             "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
+            "🔸 আনলক টাইম: <code>/setunlocktime [ঘণ্টা]</code>\n"
             "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
             "\n🆕 <b>নতুন কমান্ড:</b>\n"
             "🔸 স্টেপ: <code>/setsteps [সংখ্যা]</code>\n"
@@ -441,9 +451,14 @@ async def web_ui():
             .btn-tg { bottom:95px; background:#24A1DE; }
             .btn-req { bottom:35px; background:#10b981; }
 
-            .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; }
-            .timer { width:100px; height:100px; border-radius:50%; border:5px solid red; display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:20px; color:red; font-weight:bold; }
-            .step-indicator { font-weight:bold; color:#f87171; margin-bottom:10px; font-size:18px; }
+            /* অ্যাড স্ক্রিন নতুন ডিজাইন */
+            .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; padding: 20px; }
+            .ad-poster-img { width: 100%; max-width: 300px; height: 180px; object-fit: cover; border-radius: 15px; margin-bottom: 20px; border: 2px solid #f87171; }
+            .progress-container { width: 100%; max-width: 300px; background: #1e293b; height: 10px; border-radius: 5px; margin-bottom: 10px; overflow: hidden; }
+            .progress-bar { height: 100%; background: #f87171; width: 0%; transition: width 0.3s; }
+            .step-text { font-size: 18px; font-weight: bold; color: #f87171; margin-bottom: 5px; }
+            .percent-text { font-size: 14px; color: #94a3b8; margin-bottom: 15px; }
+            .timer { width:80px; height:80px; border-radius:50%; border:5px solid red; display:flex; align-items:center; justify-content:center; font-size:30px; margin-bottom:20px; color:red; font-weight:bold; }
             
             .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:none; align-items:center; justify-content:center; z-index:3000; }
             .modal-content { background:#1e293b; width:90%; padding:30px; border-radius:15px; text-align:center; }
@@ -486,9 +501,12 @@ async def web_ui():
         </div>
 
         <div id="adScreen" class="ad-screen">
-            <div class="step-indicator" id="stepLabel">Step 1/2</div>
+            <img id="adMoviePoster" class="ad-poster-img" src="">
+            <div class="step-text" id="stepLabel">Step 1/2</div>
+            <div class="percent-text" id="percentLabel">0% Completed</div>
+            <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
             <div class="timer" id="timer">15</div>
-            <p>সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
+            <p id="adMsg">সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
         </div>
 
         <div id="successModal" class="modal">
@@ -561,7 +579,7 @@ async def web_ui():
                     grid.innerHTML = data.map(m => {
                         let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
                         return `
-                        <div class="trending-card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked})">
+                        <div class="trending-card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked}, '${m.photo_id}')">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
                                 <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
@@ -593,7 +611,7 @@ async def web_ui():
                         grid.innerHTML = data.movies.map(m => {
                             let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
                             return `
-                            <div class="card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked})">
+                            <div class="card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked}, '${m.photo_id}')">
                                 <div class="post-content">
                                     <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
                                     ${tagHtml}
@@ -633,19 +651,31 @@ async def web_ui():
                 timeout = setTimeout(() => { loadMovies(1); }, 500); 
             });
 
-            function handleMovieClick(id, isUnlocked) {
+            function handleMovieClick(id, isUnlocked, photoId) {
                 if(isUnlocked) {
                     sendFile(id);
                 } else {
                     currentAdStep = 1;
+                    document.getElementById('adMoviePoster').src = `/api/image/${photoId}`;
                     startAdStep(id);
                 }
             }
 
             function startAdStep(id) {
-                if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
+                // ১ম স্টেপে অ্যাড দেখাবে, বাকিগুলোতে দেখাবে না
+                if (currentAdStep === 1) {
+                    if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
+                    document.getElementById('adMsg').innerText = "অ্যাড লোড হচ্ছে, অপেক্ষা করুন...";
+                } else {
+                    document.getElementById('adMsg').innerText = "সার্ভার প্রসেসিং হচ্ছে, দয়া করে অপেক্ষা করুন...";
+                }
+
                 document.getElementById('adScreen').style.display = 'flex';
+                let progress = Math.round(((currentAdStep - 1) / totalAdSteps) * 100);
                 document.getElementById('stepLabel').innerText = `Step ${currentAdStep}/${totalAdSteps}`;
+                document.getElementById('percentLabel').innerText = `${progress}% Completed`;
+                document.getElementById('progressBar').style.width = `${progress}%`;
+                
                 let t = 15;
                 document.getElementById('timer').innerText = t;
                 let iv = setInterval(() => {
@@ -656,6 +686,8 @@ async def web_ui():
                             currentAdStep++;
                             startAdStep(id);
                         } else {
+                            document.getElementById('progressBar').style.width = `100%`;
+                            document.getElementById('percentLabel').innerText = `100% Completed`;
                             sendFile(id); 
                         }
                     }
@@ -699,8 +731,12 @@ async def web_ui():
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     unlocked_movie_ids = []
+    # আনলক টাইম সেটিংস থেকে নেওয়া
+    unlock_cfg = await db.settings.find_one({"id": "unlock_config"})
+    u_hours = unlock_cfg['hours'] if unlock_cfg else 24
+
     if uid != 0:
-        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=u_hours)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_movie_ids.append(u["movie_id"])
 
@@ -722,9 +758,13 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
     total_movies = await db.movies.count_documents(query)
     total_pages = (total_movies + limit - 1) // limit
 
+    # আনলক টাইম সেটিংস থেকে নেওয়া
+    unlock_cfg = await db.settings.find_one({"id": "unlock_config"})
+    u_hours = unlock_cfg['hours'] if unlock_cfg else 24
+
     unlocked_movie_ids = []
     if uid != 0:
-        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=u_hours)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_movie_ids.append(u["movie_id"])
 

@@ -1,3 +1,5 @@
+--- START OF FILE Paste April 26, 2026 - 1:10AM ---
+
 import os, asyncio, datetime, uvicorn
 import aiohttp
 from fastapi import FastAPI, Body, Request
@@ -662,15 +664,14 @@ async def web_ui():
             }
 
             function startAdStep(id) {
-                // ১ম স্টেপে অ্যাড দেখাবে, বাকিগুলোতে দেখাবে না
-                if (currentAdStep === 1) {
-                    if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
-                    document.getElementById('adMsg').innerText = "অ্যাড লোড হচ্ছে, অপেক্ষা করুন...";
-                } else {
-                    document.getElementById('adMsg').innerText = "সার্ভার প্রসেসিং হচ্ছে, দয়া করে অপেক্ষা করুন...";
+                // প্রতিটি স্টেপেই অ্যাড স্ক্রিপ্টকে পুনরায় কল করা হচ্ছে (Single by Single Ads)
+                if (typeof window['show_' + ZONE_ID] === 'function') {
+                    window['show_' + ZONE_ID]();
                 }
 
+                document.getElementById('adMsg').innerText = "অ্যাড লোড হচ্ছে (" + currentAdStep + "/" + totalAdSteps + "), অপেক্ষা করুন...";
                 document.getElementById('adScreen').style.display = 'flex';
+                
                 let progress = Math.round(((currentAdStep - 1) / totalAdSteps) * 100);
                 document.getElementById('stepLabel').innerText = `Step ${currentAdStep}/${totalAdSteps}`;
                 document.getElementById('percentLabel').innerText = `${progress}% Completed`;
@@ -684,7 +685,7 @@ async def web_ui():
                         clearInterval(iv); 
                         if(currentAdStep < totalAdSteps) {
                             currentAdStep++;
-                            startAdStep(id);
+                            startAdStep(id); // পরের স্টেপ শুরু এবং নতুন অ্যাড লোড
                         } else {
                             document.getElementById('progressBar').style.width = `100%`;
                             document.getElementById('percentLabel').innerText = `100% Completed`;

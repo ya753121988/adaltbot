@@ -11,12 +11,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bson import ObjectId
 from pydantic import BaseModel
 
-# --- কনফিগারেশন (সংশোধিত) ---
-# os.getenv("VARIABLE_NAME", "DEFAULT_VALUE") এই ফরম্যাটে রাখা হয়েছে যাতে ইরোর না আসে
+# --- কনফিগারেশন ---
 TOKEN = os.getenv("BOT_TOKEN", "8615600822:AAGj3eUYdhRc0_uK18fpw0UzmgyGrdc9glU")
 MONGO_URL = os.getenv("MONGO_URL", "mongodb+srv://akash:akash@cluster0.etisrpx.mongodb.net/?appName=Cluster0")
 OWNER_ID = int(os.getenv("ADMIN_ID", "7525127704")) 
 APP_URL = os.getenv("APP_URL", "https://rare-rori-yeasinvai-bf8e2c68.koyeb.app/")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "-1003275619931") # আপনার চ্যানেলের আইডি এখানে দিন
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -36,8 +36,7 @@ async def load_admins():
     try:
         async for admin in db.admins.find():
             admin_cache.add(admin["user_id"])
-    except Exception as e:
-        print(f"Admin Load Error: {e}")
+    except Exception: pass
 
 # --- ব্যাকগ্রাউন্ড অটো-ডিলিট ওয়ার্কার ---
 async def auto_delete_worker():
@@ -107,6 +106,7 @@ async def start_cmd(message: types.Message):
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
+            "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on</code> বা <code>/protect off</code>\n"
             "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
             "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
@@ -118,6 +118,15 @@ async def start_cmd(message: types.Message):
     else:
         text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{uid}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
     await message.answer(text, reply_markup=markup, parse_mode="HTML")
+
+@dp.message(Command("setsitename"))
+async def set_site_name(m: types.Message):
+    if m.from_user.id in admin_cache:
+        try:
+            new_name = m.text.split(" ", 1)[1]
+            await db.settings.update_one({"id": "site_name"}, {"$set": {"name": new_name}}, upsert=True)
+            await m.answer(f"✅ সাইটের নাম পরিবর্তন করে <b>{new_name}</b> রাখা হয়েছে।", parse_mode="HTML")
+        except: await m.answer("⚠️ সঠিক নিয়ম: <code>/setsitename My Movie Site</code>", parse_mode="HTML")
 
 @dp.message(Command("protect"))
 async def protect_cmd(m: types.Message):
@@ -262,9 +271,19 @@ async def catch_all_inputs(m: types.Message):
     if uid in admin_cache and m.text and not str(m.text).startswith("/"):
         if admin_temp.get(uid, {}).get("step") == "title":
             title = m.text.strip()
+            # ডাটাবেসে সেভ
             await db.movies.insert_one({"title": title, "photo_id": admin_temp[uid]["photo_id"], "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], "clicks": 0, "created_at": datetime.datetime.utcnow()})
+            
+            # চ্যানেলে নোটিফিকেশন পাঠানো
+            try:
+                me = await bot.get_me()
+                bot_username = me.username
+                kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{bot_username}")]])
+                await bot.send_photo(CHANNEL_ID, photo=admin_temp[uid]["photo_id"], caption=f"🎥 <b>নতুন মুভি যুক্ত করা হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>\n\n📥 মুভিটি দেখতে নিচের লিংকে ক্লিক করুন।", parse_mode="HTML", reply_markup=kb)
+            except Exception: pass
+            
             del admin_temp[uid]
-            await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
+            await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে এবং চ্যানেলে নোটিফিকেশন পাঠানো হয়েছে!", parse_mode="HTML")
 
 # ==========================================
 # ৪. ওয়েব অ্যাপ UI এবং APIs
@@ -275,24 +294,26 @@ async def web_ui():
     ad_cfg = await db.settings.find_one({"id": "ad_config"})
     tg_cfg = await db.settings.find_one({"id": "link_tg"})
     b18_cfg = await db.settings.find_one({"id": "link_18"})
+    sn_cfg = await db.settings.find_one({"id": "site_name"})
     
     zone_id = ad_cfg['zone_id'] if ad_cfg else "10916755"
     tg_url = tg_cfg['url'] if tg_cfg else "https://t.me/MovieeBD"
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
+    site_name = sn_cfg['name'] if sn_cfg else "MovieZone"
 
     html_code = r"""
     <!DOCTYPE html>
     <html lang="bn">
     <head>
         <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Moviee BD</title>
+        <title>{{SITE_NAME}}</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
             * { margin:0; padding:0; box-sizing:border-box; }
             body { background:#0f172a; font-family: sans-serif; color:#fff; } 
             header { display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid #1e293b; position:sticky; top:0; background:#0f172a; z-index:1000; }
-            .logo { font-size:24px; font-weight:bold; }
+            .logo { font-size:22px; font-weight:bold; }
             .logo span { background:red; color:#fff; padding:2px 5px; border-radius:5px; margin-left:5px; font-size:16px; }
             .user-info { display:flex; align-items:center; gap:8px; background:#1e293b; padding:5px 12px; border-radius:20px; font-weight:bold; font-size:14px; }
             .user-info img { width:26px; height:26px; border-radius:50%; object-fit:cover; }
@@ -305,8 +326,9 @@ async def web_ui():
             
             .trending-container { display: flex; overflow-x: auto; gap: 12px; padding: 0 15px 20px; scroll-behavior: smooth; }
             .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 130px; max-width: 130px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative;}
-            .trending-card img { height: 170px; object-fit:cover; width:100%; border-radius:10px; display:block; }
+            .trending-card { min-width: 160px; max-width: 160px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative;}
+            /* Landscape ছবির জন্য হাইট কমানো হয়েছে */
+            .trending-card img { height: 110px; object-fit:cover; width:100%; border-radius:10px; display:block; }
             .trending-card .post-content { padding:3px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00); border-radius: 12px; }
             
             .grid { padding:0 15px 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
@@ -320,7 +342,8 @@ async def web_ui():
             }
             @keyframes glowing { 0% { background-position: 0 0; } 50% { background-position: 400% 0; } 100% { background-position: 0 0; } }
 
-            .post-content img { width:100%; height:180px; object-fit:cover; display:block; border-radius: 10px; }
+            /* Grid এর ছবির জন্য ল্যান্ডস্কেপ হাইট */
+            .post-content img { width:100%; height:110px; object-fit:cover; display:block; border-radius: 10px; }
             
             .tag { position:absolute; top:8px; right:8px; padding:4px 6px; border-radius:6px; font-weight:bold; font-size:10px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
             .tag-locked { background:rgba(0,0,0,0.85); color:#f87171; border: 1px solid #f87171; }
@@ -328,12 +351,11 @@ async def web_ui():
             
             .top-badge { position:absolute; top:8px; left:8px; background:red; color:white; padding:3px 6px; border-radius:6px; font-size:10px; font-weight:bold; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index:10;}
             
-            /* নতুন: ভিউ কাউন্টার স্টাইল */
             .view-badge { position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.7); color:#fff; padding:3px 6px; border-radius:6px; font-size:11px; font-weight:bold; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
 
             .card-footer { padding:10px; font-size:13px; font-weight:bold; text-align:center; word-wrap: break-word; color:#e2e8f0; line-height:1.4; }
             
-            .skeleton { background: #1e293b; border-radius: 12px; height: 215px; overflow: hidden; position: relative; }
+            .skeleton { background: #1e293b; border-radius: 12px; height: 140px; overflow: hidden; position: relative; }
             .skeleton::after { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: shimmer 1.5s infinite; }
             @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
@@ -358,7 +380,7 @@ async def web_ui():
     </head>
     <body>
         <header>
-            <div class="logo">MovieZone <span>BD</span></div>
+            <div class="logo">{{SITE_NAME}} <span>BD</span></div>
             <div class="user-info"><span id="uName">Guest</span><img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"></div>
         </header>
 
@@ -369,9 +391,8 @@ async def web_ui():
         <div id="trendingWrapper">
             <div class="section-title"><i class="fa-solid fa-fire"></i> ট্রেন্ডিং মুভি</div>
             <div class="trending-container" id="trendingGrid">
-                <div class="skeleton" style="min-width:130px; height:180px;"></div>
-                <div class="skeleton" style="min-width:130px; height:180px;"></div>
-                <div class="skeleton" style="min-width:130px; height:180px;"></div>
+                <div class="skeleton" style="min-width:160px; height:110px;"></div>
+                <div class="skeleton" style="min-width:160px; height:110px;"></div>
             </div>
         </div>
 
@@ -431,7 +452,7 @@ async def web_ui():
                 setInterval(() => {
                     let grid = document.getElementById('trendingGrid');
                     if(grid) {
-                        let cardWidth = 142;
+                        let cardWidth = 172;
                         if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) {
                             grid.scrollTo({ left: 0, behavior: 'smooth' });
                         } else {
@@ -572,7 +593,7 @@ async def web_ui():
     </body>
     </html>
     """
-    html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18)
+    html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{SITE_NAME}}", site_name)
     return html_code
 
 @app.get("/api/trending")
@@ -658,7 +679,7 @@ async def send_file(d: dict = Body(...)):
             if sent_msg:
                 delete_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=del_minutes)
                 await db.auto_delete.insert_one({"chat_id": uid, "message_id": sent_msg.message_id, "delete_at": delete_at})
-    except Exception as e: pass
+    except Exception: pass
     return {"ok": True}
 
 class ReqModel(BaseModel):
@@ -667,7 +688,6 @@ class ReqModel(BaseModel):
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
     try: 
-        # অ্যাডমিনের কাছে "রিপ্লাই দিন" বাটনসহ মেসেজ যাবে
         builder = InlineKeyboardBuilder()
         builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{data.uid}")
         

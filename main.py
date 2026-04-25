@@ -53,7 +53,7 @@ async def auto_delete_worker():
         await asyncio.sleep(60)
 
 # ==========================================
-# ১. মেইন ওনার (Owner) স্পেশাল কমান্ড
+# ১. মেইন ওনার (Owner) ও অ্যাডমিন কমান্ড সমূহ (নতুন সহ)
 # ==========================================
 
 @dp.message(Command("addadmin"))
@@ -90,8 +90,53 @@ async def list_admins_cmd(m: types.Message):
         if ad != OWNER_ID: text += f"👮 Admin: <code>{ad}</code>\n"
     await m.answer(text, parse_mode="HTML")
 
+@dp.message(Command("setsteps"))
+async def set_steps_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        steps = int(m.text.split(" ")[1])
+        await db.settings.update_one({"id": "step_config"}, {"$set": {"count": steps}}, upsert=True)
+        await m.answer(f"✅ অ্যাড স্টেপ সংখ্যা এখন: <b>{steps}</b>", parse_mode="HTML")
+    except: await m.answer("⚠️ নিয়ম: `/setsteps 2`")
+
+@dp.message(Command("setnotice"))
+async def set_notice_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        notice = m.text.split(" ", 1)[1]
+        await db.settings.update_one({"id": "site_notice"}, {"$set": {"text": notice}}, upsert=True)
+        await m.answer("✅ নোটিশ আপডেট করা হয়েছে।")
+    except: await m.answer("⚠️ নিয়ম: `/setnotice মুভি না চললে ভিপিএন অন করুন`")
+
+@dp.message(Command("sethead"))
+async def set_head_ad(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        code = m.text.split(" ", 1)[1]
+        await db.settings.update_one({"id": "header_ad"}, {"$set": {"code": code}}, upsert=True)
+        await m.answer("✅ হেডার ব্যানার অ্যাড কোড আপডেট হয়েছে।")
+    except: await m.answer("⚠️ নিয়ম: `/sethead [অ্যাড কোড]`")
+
+@dp.message(Command("setmid"))
+async def set_mid_ad(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        code = m.text.split(" ", 1)[1]
+        await db.settings.update_one({"id": "middle_ad"}, {"$set": {"code": code}}, upsert=True)
+        await m.answer("✅ মিডেল ব্যানার অ্যাড কোড আপডেট হয়েছে।")
+    except: await m.answer("⚠️ নিয়ম: `/setmid [অ্যাড কোড]`")
+
+@dp.message(Command("setfoot"))
+async def set_foot_ad(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        code = m.text.split(" ", 1)[1]
+        await db.settings.update_one({"id": "footer_ad"}, {"$set": {"code": code}}, upsert=True)
+        await m.answer("✅ ফুটার ব্যানার অ্যাড কোড আপডেট হয়েছে।")
+    except: await m.answer("⚠️ নিয়ম: `/setfoot [অ্যাড কোড]`")
+
 # ==========================================
-# ২. বটের সাধারণ অ্যাডমিন কমান্ড
+# ২. বটের সাধারণ অ্যাডমিন কমান্ড (আপনার আগের কোড)
 # ==========================================
 
 @dp.message(Command("start"))
@@ -110,6 +155,12 @@ async def start_cmd(message: types.Message):
             "🔸 প্রোটেকশন: <code>/protect on</code> বা <code>/protect off</code>\n"
             "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
             "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
+            "\n🆕 <b>নতুন কমান্ড:</b>\n"
+            "🔸 স্টেপ: <code>/setsteps [সংখ্যা]</code>\n"
+            "🔸 নোটিশ: <code>/setnotice [টেক্সট]</code>\n"
+            "🔸 হেডার অ্যাড: <code>/sethead [কোড]</code>\n"
+            "🔸 মিডেল অ্যাড: <code>/setmid [কোড]</code>\n"
+            "🔸 ফুটার অ্যাড: <code>/setfoot [কোড]</code>\n"
         )
         if uid == OWNER_ID:
             text += "\n👑 <b>ওনার কমান্ড:</b>\n🔸 অ্যাড অ্যাডমিন: <code>/addadmin ID</code>\n🔸 ডিলিট অ্যাডমিন: <code>/deladmin ID</code>\n🔸 অ্যাডমিন লিস্ট: <code>/adminlist</code>\n"
@@ -206,7 +257,7 @@ async def set_18(m: types.Message):
         except: await m.answer("⚠️ সঠিক নিয়ম: <code>/set18 https://t.me/...</code>", parse_mode="HTML")
 
 # ==========================================
-# ৩. ইনপুট প্রসেসিং (আপলোড, ব্রডকাস্ট, রিপ্লাই)
+# ৩. ইনপুট প্রসেসিং (আপলোড, ব্রডকাস্ট, রিপ্লাই) (আপনার আগের কোড)
 # ==========================================
 
 @dp.message(Command("cast"))
@@ -286,7 +337,7 @@ async def catch_all_inputs(m: types.Message):
             await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে এবং চ্যানেলে নোটিফিকেশন পাঠানো হয়েছে!", parse_mode="HTML")
 
 # ==========================================
-# ৪. ওয়েব অ্যাপ UI এবং APIs
+# ৪. ওয়েব অ্যাপ UI এবং APIs (নতুন ফিচার সহ)
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)
@@ -295,11 +346,21 @@ async def web_ui():
     tg_cfg = await db.settings.find_one({"id": "link_tg"})
     b18_cfg = await db.settings.find_one({"id": "link_18"})
     sn_cfg = await db.settings.find_one({"id": "site_name"})
+    nt_cfg = await db.settings.find_one({"id": "site_notice"})
+    st_cfg = await db.settings.find_one({"id": "step_config"})
+    h_ad = await db.settings.find_one({"id": "header_ad"})
+    m_ad = await db.settings.find_one({"id": "middle_ad"})
+    f_ad = await db.settings.find_one({"id": "footer_ad"})
     
     zone_id = ad_cfg['zone_id'] if ad_cfg else "10916755"
     tg_url = tg_cfg['url'] if tg_cfg else "https://t.me/MovieeBD"
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
     site_name = sn_cfg['name'] if sn_cfg else "MovieZone"
+    notice_text = nt_cfg['text'] if nt_cfg else "মুভি অ্যাপে স্বাগতম! মুভি ডাউনলোড করতে এড এর স্টেপ গুলো কমপ্লিট করুন।"
+    total_steps = st_cfg['count'] if st_cfg else 2
+    header_code = h_ad['code'] if h_ad else ""
+    middle_code = m_ad['code'] if m_ad else ""
+    footer_code = f_ad['code'] if f_ad else ""
 
     html_code = r"""
     <!DOCTYPE html>
@@ -311,13 +372,25 @@ async def web_ui():
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
             * { margin:0; padding:0; box-sizing:border-box; }
-            body { background:#0f172a; font-family: sans-serif; color:#fff; } 
-            header { display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid #1e293b; position:sticky; top:0; background:#0f172a; z-index:1000; }
+            body { background:#0f172a; font-family: sans-serif; color:#fff; overflow-x:hidden; } 
+            
+            /* সাইট বক্স/কন্টেইনার */
+            .main-container { max-width: 600px; margin: 0 auto; background: #0f172a; min-height: 100vh; }
+            
+            header { display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid #1e293b; background:#0f172a; position:sticky; top:0; z-index:1000; }
             .logo { font-size:22px; font-weight:bold; }
             .logo span { background:red; color:#fff; padding:2px 5px; border-radius:5px; margin-left:5px; font-size:16px; }
             .user-info { display:flex; align-items:center; gap:8px; background:#1e293b; padding:5px 12px; border-radius:20px; font-weight:bold; font-size:14px; }
             .user-info img { width:26px; height:26px; border-radius:50%; object-fit:cover; }
             
+            /* নোটিশ বার */
+            .notice-bar { background: linear-gradient(90deg, #f87171, #ef4444); color: white; padding: 10px; font-size: 14px; font-weight: bold; text-align: center; overflow: hidden; white-space: nowrap; }
+            .notice-content { display: inline-block; animation: scroll-text 15s linear infinite; }
+            @keyframes scroll-text { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+
+            /* ব্যানার অ্যাড স্লট */
+            .ad-slot { width: 100%; display: flex; justify-content: center; align-items: center; padding: 10px 0; overflow: hidden; min-height: 50px; background: rgba(30, 41, 59, 0.5); margin: 5px 0; }
+
             .search-box { padding:15px; }
             .search-input { width:100%; padding:14px; border-radius:25px; border:none; outline:none; text-align:center; background:#1e293b; color:#fff; font-size:16px; transition: 0.3s; }
             .search-input:focus { box-shadow: 0 0 10px rgba(248,113,113,0.5); }
@@ -326,14 +399,14 @@ async def web_ui():
             
             .trending-container { display: flex; overflow-x: auto; gap: 12px; padding: 0 15px 20px; scroll-behavior: smooth; }
             .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 160px; max-width: 160px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative;}
-            /* Landscape ছবির জন্য হাইট কমানো হয়েছে */
-            .trending-card img { height: 110px; object-fit:cover; width:100%; border-radius:10px; display:block; }
+            .trending-card { min-width: 80%; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative;}
+            .trending-card img { height: 180px; object-fit:cover; width:100%; border-radius:10px; display:block; }
             .trending-card .post-content { padding:3px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00); border-radius: 12px; }
             
-            .grid { padding:0 15px 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
-            .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s; }
-            .card:active { transform: scale(0.95); }
+            /* ১ কলাম গ্রিড ও ল্যান্ডস্কেপ কার্ড (Desktop & Mobile) */
+            .grid { padding:0 15px 20px; display: grid; grid-template-columns: 1fr; gap: 20px; }
+            .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s; border: 1px solid #334155; }
+            .card:active { transform: scale(0.98); }
             
             .post-content { 
                 position:relative; padding: 3px; border-radius: 12px;
@@ -342,20 +415,19 @@ async def web_ui():
             }
             @keyframes glowing { 0% { background-position: 0 0; } 50% { background-position: 400% 0; } 100% { background-position: 0 0; } }
 
-            /* Grid এর ছবির জন্য ল্যান্ডস্কেপ হাইট */
-            .post-content img { width:100%; height:110px; object-fit:cover; display:block; border-radius: 10px; }
+            /* ল্যান্ডস্কেপ ইমেজ হাইট */
+            .post-content img { width:100%; height:200px; object-fit:cover; display:block; border-radius: 10px; }
             
             .tag { position:absolute; top:8px; right:8px; padding:4px 6px; border-radius:6px; font-weight:bold; font-size:10px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
             .tag-locked { background:rgba(0,0,0,0.85); color:#f87171; border: 1px solid #f87171; }
             .tag-unlocked { background:rgba(0,0,0,0.85); color:#10b981; border: 1px solid #10b981; }
             
             .top-badge { position:absolute; top:8px; left:8px; background:red; color:white; padding:3px 6px; border-radius:6px; font-size:10px; font-weight:bold; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index:10;}
-            
             .view-badge { position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.7); color:#fff; padding:3px 6px; border-radius:6px; font-size:11px; font-weight:bold; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
 
-            .card-footer { padding:10px; font-size:13px; font-weight:bold; text-align:center; word-wrap: break-word; color:#e2e8f0; line-height:1.4; }
+            .card-footer { padding:12px; font-size:16px; font-weight:bold; text-align:center; word-wrap: break-word; color:#e2e8f0; line-height:1.4; }
             
-            .skeleton { background: #1e293b; border-radius: 12px; height: 140px; overflow: hidden; position: relative; }
+            .skeleton { background: #1e293b; border-radius: 12px; height: 180px; overflow: hidden; position: relative; }
             .skeleton::after { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: shimmer 1.5s infinite; }
             @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
@@ -371,6 +443,7 @@ async def web_ui():
 
             .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; }
             .timer { width:100px; height:100px; border-radius:50%; border:5px solid red; display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:20px; color:red; font-weight:bold; }
+            .step-indicator { font-weight:bold; color:#f87171; margin-bottom:10px; font-size:18px; }
             
             .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:none; align-items:center; justify-content:center; z-index:3000; }
             .modal-content { background:#1e293b; width:90%; padding:30px; border-radius:15px; text-align:center; }
@@ -379,33 +452,41 @@ async def web_ui():
         </style>
     </head>
     <body>
-        <header>
-            <div class="logo">{{SITE_NAME}} <span>BD</span></div>
-            <div class="user-info"><span id="uName">Guest</span><img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"></div>
-        </header>
+        <div class="main-container">
+            <header>
+                <div class="logo">{{SITE_NAME}} <span>BD</span></div>
+                <div class="user-info"><span id="uName">Guest</span><img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"></div>
+            </header>
 
-        <div class="search-box">
-            <input type="text" id="searchInput" class="search-input" placeholder="মুভি বা ওয়েব সিরিজ খুঁজুন...">
-        </div>
-
-        <div id="trendingWrapper">
-            <div class="section-title"><i class="fa-solid fa-fire"></i> ট্রেন্ডিং মুভি</div>
-            <div class="trending-container" id="trendingGrid">
-                <div class="skeleton" style="min-width:160px; height:110px;"></div>
-                <div class="skeleton" style="min-width:160px; height:110px;"></div>
+            <div class="notice-bar">
+                <div class="notice-content">{{NOTICE_TEXT}}</div>
             </div>
+
+            <div class="ad-slot">{{HEADER_AD}}</div>
+
+            <div class="search-box">
+                <input type="text" id="searchInput" class="search-input" placeholder="মুভি বা ওয়েব সিরিজ খুঁজুন...">
+            </div>
+
+            <div class="ad-slot">{{MIDDLE_AD}}</div>
+
+            <div id="trendingWrapper">
+                <div class="section-title"><i class="fa-solid fa-fire"></i> ট্রেন্ডিং মুভি</div>
+                <div class="trending-container" id="trendingGrid">
+                    <div class="skeleton" style="min-width:80%; height:180px;"></div>
+                </div>
+            </div>
+
+            <div class="section-title"><i class="fa-solid fa-film"></i> নতুন সব মুভি</div>
+            <div class="grid" id="movieGrid"></div>
+            
+            <div class="ad-slot">{{FOOTER_AD}}</div>
+
+            <div class="pagination" id="paginationBox"></div>
         </div>
-
-        <div class="section-title"><i class="fa-solid fa-film"></i> নতুন সব মুভি</div>
-        <div class="grid" id="movieGrid"></div>
-        
-        <div class="pagination" id="paginationBox"></div>
-
-        <div class="floating-btn btn-18" onclick="window.open('{{LINK_18}}')">18+</div>
-        <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
-        <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
 
         <div id="adScreen" class="ad-screen">
+            <div class="step-indicator" id="stepLabel">Step 1/2</div>
             <div class="timer" id="timer">15</div>
             <p>সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
         </div>
@@ -414,7 +495,7 @@ async def web_ui():
             <div class="modal-content">
                 <i class="fa-solid fa-circle-check" style="font-size:60px; color:#10b981;"></i>
                 <h2 style="margin:15px 0;">সম্পন্ন হয়েছে!</h2>
-                <p style="margin-bottom: 20px; color:gray; font-size:14px;">বটের ইনবক্স চেক করুন। <br><span style="color:#f87171;">সতর্কতা: কপিরাইট এড়াতে মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে।</span></p>
+                <p style="margin-bottom: 20px; color:gray; font-size:14px;">বটের ইনবক্স চেক করুন। <br><span style="color:#f87171;">সতর্কতা: মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে।</span></p>
                 <button class="btn-submit" onclick="tg.close()">বটে ফিরে যান</button>
             </div>
         </div>
@@ -428,12 +509,18 @@ async def web_ui():
             </div>
         </div>
 
+        <div class="floating-btn btn-18" onclick="window.open('{{LINK_18}}')">18+</div>
+        <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
+        <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
+
         <script>
             let tg = window.Telegram.WebApp; tg.expand();
             const ZONE_ID = "{{ZONE_ID}}";
             
             let currentPage = 1; let isLoading = false; let searchQuery = "";
             let uid = tg.initDataUnsafe.user?.id || 0;
+            let currentAdStep = 1;
+            const totalAdSteps = {{TOTAL_STEPS}};
 
             if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
@@ -452,7 +539,7 @@ async def web_ui():
                 setInterval(() => {
                     let grid = document.getElementById('trendingGrid');
                     if(grid) {
-                        let cardWidth = 172;
+                        let cardWidth = 300;
                         if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) {
                             grid.scrollTo({ left: 0, behavior: 'smooth' });
                         } else {
@@ -484,7 +571,6 @@ async def web_ui():
                             <div class="card-footer" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${m.title}</div>
                         </div>`;
                     }).join('');
-                    
                     setTimeout(startAutoScroll, 2000);
                 } catch(e) {}
             }
@@ -493,19 +579,16 @@ async def web_ui():
                 if(isLoading) return;
                 isLoading = true;
                 currentPage = page;
-                
                 const grid = document.getElementById('movieGrid');
                 const pBox = document.getElementById('paginationBox');
-                
-                grid.innerHTML = drawSkeletons(16);
+                grid.innerHTML = drawSkeletons(10);
                 pBox.innerHTML = "";
 
                 try {
                     const r = await fetch(`/api/list?page=${currentPage}&q=${searchQuery}&uid=${uid}`);
                     const data = await r.json();
-                    
                     if(data.movies.length === 0) {
-                        grid.innerHTML = "<p style='grid-column: span 2; text-align:center; color:gray; padding:20px;'>কোনো মুভি পাওয়া যায়নি!</p>";
+                        grid.innerHTML = "<p style='grid-column: span 1; text-align:center; color:gray; padding:20px;'>কোনো মুভি পাওয়া যায়নি!</p>";
                     } else {
                         grid.innerHTML = data.movies.map(m => {
                             let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
@@ -531,9 +614,7 @@ async def web_ui():
                 html += `<button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>`;
                 let start = Math.max(1, currentPage - 1);
                 let end = Math.min(totalPages, currentPage + 1);
-                if (start > 1) { html += `<button class="page-btn" onclick="goToPage(1)">1</button>`; if (start > 2) html += `<span style="color:gray;">...</span>`; }
                 for (let i = start; i <= end; i++) { html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`; }
-                if (end < totalPages) { if (end < totalPages - 1) html += `<span style="color:gray;">...</span>`; html += `<button class="page-btn" onclick="goToPage(${totalPages})">${totalPages}</button>`; }
                 html += `<button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>`;
                 document.getElementById('paginationBox').innerHTML = html;
             }
@@ -556,17 +637,29 @@ async def web_ui():
                 if(isUnlocked) {
                     sendFile(id);
                 } else {
-                    if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
-                    document.getElementById('adScreen').style.display = 'flex';
-                    let t = 15;
-                    let iv = setInterval(() => {
-                        t--; document.getElementById('timer').innerText = t;
-                        if(t <= 0) { 
-                            clearInterval(iv); 
+                    currentAdStep = 1;
+                    startAdStep(id);
+                }
+            }
+
+            function startAdStep(id) {
+                if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
+                document.getElementById('adScreen').style.display = 'flex';
+                document.getElementById('stepLabel').innerText = `Step ${currentAdStep}/${totalAdSteps}`;
+                let t = 15;
+                document.getElementById('timer').innerText = t;
+                let iv = setInterval(() => {
+                    t--; document.getElementById('timer').innerText = t;
+                    if(t <= 0) { 
+                        clearInterval(iv); 
+                        if(currentAdStep < totalAdSteps) {
+                            currentAdStep++;
+                            startAdStep(id);
+                        } else {
                             sendFile(id); 
                         }
-                    }, 1000);
-                }
+                    }
+                }, 1000);
             }
 
             async function sendFile(id) {
@@ -593,8 +686,15 @@ async def web_ui():
     </body>
     </html>
     """
-    html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{SITE_NAME}}", site_name)
-    return html_code
+    final_html = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{SITE_NAME}}", site_name)
+    final_html = final_html.replace("{{NOTICE_TEXT}}", notice_text).replace("{{TOTAL_STEPS}}", str(total_steps))
+    final_html = final_html.replace("{{HEADER_AD}}", header_code).replace("{{MIDDLE_AD}}", middle_code).replace("{{FOOTER_AD}}", footer_code)
+    
+    return final_html
+
+# ==========================================
+# ৫. এপিআই সেকশন (আপনার আগের কোড)
+# ==========================================
 
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):

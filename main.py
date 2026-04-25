@@ -24,7 +24,7 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 client = AsyncIOMotorClient(MONGO_URL)
-db = client['movie_database']
+db = client['movie_databases']
 
 admin_temp = {}
 admin_cache = set([OWNER_ID]) 

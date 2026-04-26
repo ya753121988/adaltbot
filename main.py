@@ -1,4 +1,4 @@
-import os, asyncio, datetime, uvicorn, random, re
+import os, asyncio, datetime, uvicorn, random, re, subprocess
 import aiohttp
 from fastapi import FastAPI, Body, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -10,6 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bson import ObjectId
 from pydantic import BaseModel
+from PIL import Image # নতুন ইমেজ লাইব্রেরি
 
 # --- কনফিগারেশন ---
 TOKEN = os.getenv("BOT_TOKEN", "8615600822:AAGj3eUYdhRc0_uK18fpw0UzmgyGrdc9glU")
@@ -29,6 +30,39 @@ db = client['movie_database']
 
 admin_temp = {}
 admin_cache = set([OWNER_ID]) 
+
+# --- নতুন স্ক্রিনশট গ্রিড ফাংশন (১৬টি স্ক্রিনশট ৪x৪ ল্যান্ডস্কেপ গ্রিড) ---
+async def create_screenshot_grid(video_path, output_path):
+    try:
+        # ভিডিওর ডিউরেশন বের করা
+        cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{video_path}"'
+        duration = float(subprocess.check_output(cmd, shell=True).decode().strip())
+        
+        interval = duration / 17
+        screenshots = []
+        for i in range(1, 17):
+            time_pos = i * interval
+            temp_out = f"temp_frame_{i}.jpg"
+            # FFMPEG দিয়ে ফ্রেম নেওয়া
+            subprocess.run(f'ffmpeg -ss {time_pos} -i "{video_path}" -vframes 1 -q:v 2 "{temp_out}" -y', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            screenshots.append(temp_out)
+        
+        # PIL দিয়ে গ্রিড তৈরি
+        images = [Image.open(x) for x in screenshots]
+        w, h = images[0].size
+        grid = Image.new('RGB', (w*4, h*4))
+        
+        for idx, img in enumerate(images):
+            x = (idx % 4) * w
+            y = (idx // 4) * h
+            grid.paste(img, (x, y))
+            img.close()
+            os.remove(screenshots[idx])
+            
+        grid.save(output_path)
+        return True
+    except Exception:
+        return False
 
 # --- নতুন টাইম পার্সার (Flexible Time: 1h,1m,1s ফরম্যাট সাপোর্ট করার জন্য) ---
 def parse_duration(time_str):
@@ -223,7 +257,10 @@ async def start_cmd(message: types.Message):
     if uid in admin_cache:
         text = (
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
-            "⚙️ <b>কমান্ড:</b>\n"
+            "⚙️ <b>পোস্ট কমান্ড:</b>\n"
+            "🔹 <code>/post</code> - ম্যানুয়াল আপলোড (আগের মত)\n"
+            "🔹 <code>/new</code> - অটো স্ক্রিনশট আপলোড (নতুন)\n\n"
+            "⚙️ <b>সাধারণ কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
             "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on</code> বা <code>/protect off</code>\n"
@@ -244,10 +281,23 @@ async def start_cmd(message: types.Message):
         if uid == OWNER_ID:
             text += "\n👑 <b>ওনার কমান্ড:</b>\n🔸 অ্যাড অ্যাডমিন: <code>/addadmin ID</code>\n🔸 ডিলিট অ্যাডমিন: <code>/deladmin ID</code>\n🔸 অ্যাডমিন লিস্ট: <code>/adminlist</code>\n"
             
-        text += "\n📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
+        text += "\n📥 <b>মুভি আপলোড করতে /post বা /new কমান্ড ব্যবহার করুন।</b>"
     else:
         text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{uid}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
     await message.answer(text, reply_markup=markup, parse_mode="HTML")
+
+# --- নতুন আপলোড কমান্ডসমূহ ---
+@dp.message(Command("post"))
+async def post_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    admin_temp[m.from_user.id] = {"step": "manual_file"}
+    await m.answer("📥 <b>ম্যানুয়াল আপলোড:</b> মুভি ফাইলটি (Video/Doc) পাঠান।")
+
+@dp.message(Command("new"))
+async def new_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    admin_temp[m.from_user.id] = {"step": "auto_name"}
+    await m.answer("🆕 <b>অটো আপলোড:</b> মুভির নাম লিখে পাঠান।")
 
 @dp.message(Command("setsitename"))
 async def set_site_name(m: types.Message):
@@ -356,9 +406,10 @@ async def process_reply_cb(c: types.CallbackQuery):
 @dp.message(F.content_type.in_({'text', 'photo', 'video', 'document', 'voice'}))
 async def catch_all_inputs(m: types.Message):
     uid = m.from_user.id
+    state = admin_temp.get(uid, {}).get("step")
     
     # ইউজারকে রিপ্লাই দেওয়ার ফ্লো
-    if uid in admin_cache and admin_temp.get(uid, {}).get("step") == "reply_user":
+    if uid in admin_cache and state == "reply_user":
         target_uid = admin_temp[uid]["target_uid"]
         del admin_temp[uid]
         try:
@@ -370,7 +421,7 @@ async def catch_all_inputs(m: types.Message):
         return
 
     # ব্রডকাস্ট ফ্লো
-    if uid in admin_cache and admin_temp.get(uid, {}).get("step") == "bcast_wait":
+    if uid in admin_cache and state == "bcast_wait":
         del admin_temp[uid]
         await m.answer("⏳ ব্রডকাস্ট শুরু হয়েছে...")
         kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 ওপেন মুভি অ্যাপ", web_app=types.WebAppInfo(url=APP_URL))]])
@@ -384,39 +435,97 @@ async def catch_all_inputs(m: types.Message):
         await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
         return
 
-    # মুভি আপলোড ফ্লো
-    if uid in admin_cache and (m.document or m.video):
+    # --- ১. ম্যানুয়াল আপলোড ফ্লো (/post) ---
+    if uid in admin_cache and (m.document or m.video) and state == "manual_file":
         fid = m.video.file_id if m.video else m.document.file_id
         ftype = "video" if m.video else "document"
-        admin_temp[uid] = {"step": "photo", "file_id": fid, "type": ftype}
+        admin_temp[uid] = {"step": "manual_photo", "file_id": fid, "type": ftype}
         await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।", parse_mode="HTML")
         return
 
-    if uid in admin_cache and m.photo and admin_temp.get(uid, {}).get("step") == "photo":
+    if uid in admin_cache and m.photo and state == "manual_photo":
         admin_temp[uid]["photo_id"] = m.photo[-1].file_id
-        admin_temp[uid]["step"] = "title"
+        admin_temp[uid]["step"] = "manual_title"
         await m.answer("✅ পোস্টার পেয়েছি! এবার মুভির <b>নাম</b> লিখে পাঠান।", parse_mode="HTML")
         return
 
-    if uid in admin_cache and m.text and not str(m.text).startswith("/"):
-        if admin_temp.get(uid, {}).get("step") == "title":
-            title = m.text.strip()
-            # ডাটাবেসে সেভ
-            await db.movies.insert_one({"title": title, "photo_id": admin_temp[uid]["photo_id"], "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], "clicks": 0, "created_at": datetime.datetime.utcnow()})
+    if uid in admin_cache and m.text and state == "manual_title":
+        title = m.text.strip()
+        await db.movies.insert_one({
+            "title": title, "photo_id": admin_temp[uid]["photo_id"], 
+            "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], 
+            "clicks": 0, "created_at": datetime.datetime.utcnow()
+        })
+        try:
+            me = await bot.get_me()
+            kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{me.username}")]])
+            await bot.send_photo(CHANNEL_ID, photo=admin_temp[uid]["photo_id"], caption=f"🎥 <b>নতুন মুভি যুক্ত করা হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>", parse_mode="HTML", reply_markup=kb)
+        except: pass
+        del admin_temp[uid]
+        await m.answer(f"🎉 <b>{title}</b> ম্যানুয়ালি যুক্ত করা হয়েছে!")
+        return
+
+    # --- ২. অটো আপলোড ফ্লো (/new) ---
+    if uid in admin_cache and m.text and state == "auto_name":
+        admin_temp[uid] = {"step": "auto_file", "title": m.text.strip()}
+        await m.answer(f"✅ মুভি: <b>{m.text}</b>\nএবার ভিডিও ফাইলটি পাঠান (Max 2GB)।", parse_mode="HTML")
+        return
+
+    if uid in admin_cache and (m.document or m.video) and state == "auto_file":
+        file = m.video or m.document
+        if file.file_size > 2000 * 1024 * 1024:
+            return await m.answer("⚠️ ফাইলটি ২ জিবির চেয়ে বড়! দয়া করে <b>/post</b> কমান্ড ব্যবহার করে ম্যানুয়ালি আপলোড করুন।")
+        
+        status_msg = await m.answer("⏳ প্রসেসিং শুরু হয়েছে... ভিডিও থেকে ১৬টি স্ক্রিনশট নেওয়া হচ্ছে। দয়া করে অপেক্ষা করুন।")
+        
+        try:
+            file_info = await bot.get_file(file.file_id)
+            video_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
             
-            # চ্যানেলে নোটিফিকেশন পাঠানো
-            try:
+            # ভিডিও সাময়িক ডাউনলোড
+            video_path = "temp_video.mp4"
+            grid_path = "grid_poster.jpg"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(video_url) as resp:
+                    with open(video_path, 'wb') as f:
+                        f.write(await resp.read())
+            
+            # স্ক্রিনশট গ্রিড তৈরি
+            res = await create_screenshot_grid(video_path, grid_path)
+            
+            if res:
+                # গ্রিড ফটো আপলোড
+                with open(grid_path, 'rb') as f:
+                    photo_msg = await bot.send_photo(m.chat.id, photo=types.BufferedInputFile(f.read(), filename="grid.jpg"), caption="Auto Generated Poster")
+                    photo_id = photo_msg.photo[-1].file_id
+                
+                title = admin_temp[uid]["title"]
+                ftype = "video" if m.video else "document"
+                
+                await db.movies.insert_one({
+                    "title": title, "photo_id": photo_id, "file_id": file.file_id, 
+                    "file_type": ftype, "clicks": 0, "created_at": datetime.datetime.utcnow()
+                })
+                
                 me = await bot.get_me()
-                bot_username = me.username
-                kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{bot_username}")]])
-                await bot.send_photo(CHANNEL_ID, photo=admin_temp[uid]["photo_id"], caption=f"🎥 <b>নতুন মুভি যুক্ত করা হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>\n\n📥 মুভিটি দেখতে নিচের লিংকে ক্লিক করুন।", parse_mode="HTML", reply_markup=kb)
-            except Exception: pass
+                kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{me.username}")]])
+                await bot.send_photo(CHANNEL_ID, photo=photo_id, caption=f"🎥 <b>নতুন মুভি যুক্ত হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>", parse_mode="HTML", reply_markup=kb)
+                
+                await status_msg.edit_text(f"🎉 <b>{title}</b> অটো স্ক্রিনশট সহ সফলভাবে যুক্ত হয়েছে!")
+            else:
+                await status_msg.edit_text("❌ স্ক্রিনশট নিতে ব্যর্থ হয়েছে। দয়া করে /post ব্যবহার করুন।")
             
+            # ক্লিনআপ
+            if os.path.exists(video_path): os.remove(video_path)
+            if os.path.exists(grid_path): os.remove(grid_path)
             del admin_temp[uid]
-            await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে এবং চ্যানেলে নোটিফিকেশন পাঠানো হয়েছে!", parse_mode="HTML")
+
+        except Exception as e:
+            await status_msg.edit_text(f"❌ এরর: {str(e)}")
 
 # ==========================================
-# ৪. ওয়েব অ্যাপ UI এবং APIs (নতুন ফিচার সহ)
+# ৪. ওয়েব অ্যাপ UI এবং APIs (আপনার আগের কোড)
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)

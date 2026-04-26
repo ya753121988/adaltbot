@@ -271,9 +271,9 @@ async def start_cmd(message: types.Message):
         text = (
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>পোস্ট কমান্ড:</b>\n"
-            "🔹 <code>/post</code> - ম্যানুয়াল আপলোড\n"
-            "🔹 <code>/new</code> - অটো স্ক্রিনশট (নাম দিয়ে)\n"
-            "🔹 <code>/auto</code> - অটো পোস্ট (Hot Sex সিরিয়াল)\n\n"
+            "🔹 <code>/post</code> - ম্যানুয়াল আপলোড (আগের মত)\n"
+            "🔹 <code>/new</code> - অটো স্ক্রিনশট আপলোড (নাম দিয়ে)\n"
+            "🔹 <code>/auto</code> - ফুল অটো (সিরিয়াল নাম + স্ক্রিনশট)\n\n"
             "⚙️ <b>সাধারণ কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
             "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
@@ -316,8 +316,8 @@ async def new_cmd(m: types.Message):
 @dp.message(Command("auto"))
 async def auto_post_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
-    admin_temp[m.from_user.id] = {"step": "auto_hot_mode"}
-    await m.answer("🔞 <b>Hot Sex অটো মোড:</b> শুধু ভিডিও ফাইলটি পাঠান।\nবট অটোমেটিক সিরিয়াল নাম্বার (১, ২, ৩...) দিয়ে পোস্ট করবে।")
+    admin_temp[m.from_user.id] = {"step": "auto_serial_mode"}
+    await m.answer("🤖 <b>ফুল অটো মোড:</b> শুধু ভিডিও ফাইলটি পাঠান।\nবট অটোমেটিক সিরিয়াল নাম্বার ও স্ক্রিনশট দিয়ে পোস্ট করে দিবে।")
 
 @dp.message(Command("setsitename"))
 async def set_site_name(m: types.Message):
@@ -485,13 +485,13 @@ async def catch_all_inputs(m: types.Message):
         await m.answer(f"🎉 <b>{title}</b> ম্যানুয়ালি যুক্ত করা হয়েছে!")
         return
 
-    # --- ২. অটো আপলোড ফ্লো (/new) এবং /auto কমান্ড প্রসেসিং ---
+    # --- ২. অটো আপলোড ফ্লো (/new) এবং /auto প্রসেসিং ---
     if uid in admin_cache and m.text and state == "auto_name":
         admin_temp[uid] = {"step": "auto_file", "title": m.text.strip()}
         await m.answer(f"✅ মুভি: <b>{m.text}</b>\nএবার ভিডিও ফাইলটি পাঠান (Max 2GB)।", parse_mode="HTML")
         return
 
-    if uid in admin_cache and (m.document or m.video) and (state == "auto_file" or state == "auto_hot_mode"):
+    if uid in admin_cache and (m.document or m.video) and (state == "auto_file" or state == "auto_serial_mode"):
         file = m.video or m.document
         if file.file_size > 2000 * 1024 * 1024:
             return await m.answer("⚠️ ফাইলটি ২ জিবির চেয়ে বড়! দয়া করে <b>/post</b> কমান্ড ব্যবহার করে ম্যানুয়ালি আপলোড করুন।")
@@ -499,12 +499,17 @@ async def catch_all_inputs(m: types.Message):
         status_msg = await m.answer("⏳ প্রসেসিং শুরু হয়েছে... ভিডিও থেকে ৬টি ল্যান্ডস্কেপ স্ক্রিনশট নেওয়া হচ্ছে। দয়া করে অপেক্ষা করুন।")
         
         try:
-            # --- /auto কমান্ডের জন্য অটো টাইটেল জেনারেশন ---
-            if state == "auto_hot_mode":
-                # ডাটাবেস থেকে বর্তমান কাউন্ট নেয়া এবং ১ বাড়ানো
-                res_counter = await db.settings.find_one_and_update({"id": "auto_post_counter"}, {"$inc": {"count": 1}}, upsert=True, return_document=True)
-                count = res_counter.get('count', 1)
-                title = f"New Hot Sex Video Number {count}"
+            # --- /auto কমান্ডের জন্য নাম তৈরি ---
+            if state == "auto_serial_mode":
+                # ডাটাবেস থেকে সিরিয়াল কাউন্টার আপডেট করা
+                serial_res = await db.settings.find_one_and_update(
+                    {"id": "auto_post_count"},
+                    {"$inc": {"value": 1}},
+                    upsert=True,
+                    return_document=True
+                )
+                count_val = serial_res.get('value', 1)
+                title = f"New Hot Sex Video Number {count_val}"
             else:
                 title = admin_temp[uid]["title"]
 
@@ -541,7 +546,7 @@ async def catch_all_inputs(m: types.Message):
                 kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{me.username}?start=new")]])
                 await bot.send_photo(CHANNEL_ID, photo=photo_id, caption=f"🎥 <b>নতুন মুভি যুক্ত হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>", parse_mode="HTML", reply_markup=kb)
                 
-                await status_msg.edit_text(f"🎉 <b>{title}</b> অটো স্ক্রিনশট সহ সফলভাবে যুক্ত হয়েছে!")
+                await status_msg.edit_text(f"🎉 <b>{title}</b> স্ক্রিনশট সহ সফলভাবে যুক্ত হয়েছে!")
             else:
                 await status_msg.edit_text("❌ স্ক্রিনশট নিতে ব্যর্থ হয়েছে। দয়া করে /post ব্যবহার করুন।")
             
@@ -901,7 +906,7 @@ async def web_ui():
                         grid.innerHTML = "<p style='grid-column: span 1; text-align:center; color:gray; padding:20px;'>কোনো মুভি পাওয়া যায়নি!</p>";
                     } else {
                         grid.innerHTML = data.movies.map(m => {
-                            let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
+                            let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
                             let timerHtml = m.is_unlocked ? `<div class="unlock-timer" id="list_timer_${m._id}"></div>` : `<div class="step-overlay">Steps: 0/${TOTAL_STEPS}</div>`;
                             
                             return `

@@ -272,7 +272,8 @@ async def start_cmd(message: types.Message):
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>পোস্ট কমান্ড:</b>\n"
             "🔹 <code>/post</code> - ম্যানুয়াল আপলোড (আগের মত)\n"
-            "🔹 <code>/new</code> - অটো স্ক্রিনশট আপলোড (নতুন)\n\n"
+            "🔹 <code>/new</code> - অটো স্ক্রিনশট আপলোড (নাম সহ)\n"
+            "🔹 <code>/auto</code> - ফুল অটো (সিরিয়াল নাম + স্ক্রিনশট)\n\n"
             "⚙️ <b>সাধারণ কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
             "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
@@ -294,7 +295,7 @@ async def start_cmd(message: types.Message):
         if uid == OWNER_ID:
             text += "\n👑 <b>ওনার কমান্ড:</b>\n🔸 অ্যাড অ্যাডমিন: <code>/addadmin ID</code>\n🔸 ডিলিট অ্যাডমিন: <code>/deladmin ID</code>\n🔸 অ্যাডমিন লিস্ট: <code>/adminlist</code>\n"
             
-        text += "\n📥 <b>মুভি আপলোড করতে /post বা /new কমান্ড ব্যবহার করুন।</b>"
+        text += "\n📥 <b>মুভি আপলোড করতে /post, /new বা /auto কমান্ড ব্যবহার করুন।</b>"
     else:
         text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{uid}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
     await message.answer(text, reply_markup=markup, parse_mode="HTML")
@@ -311,6 +312,13 @@ async def new_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     admin_temp[m.from_user.id] = {"step": "auto_name"}
     await m.answer("🆕 <b>অটো আপলোড:</b> মুভির নাম লিখে পাঠান।")
+
+# --- /auto কমান্ড যোগ করা হলো ---
+@dp.message(Command("auto"))
+async def auto_post_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    admin_temp[m.from_user.id] = {"step": "auto_wait_file"}
+    await m.answer("🤖 <b>ফুল অটো মোড:</b> শুধু ভিডিও ফাইলটি পাঠান।\nবট অটোমেটিক সিরিয়াল নাম্বার দিয়ে পোস্ট করে দিবে।")
 
 @dp.message(Command("setsitename"))
 async def set_site_name(m: types.Message):
@@ -478,13 +486,14 @@ async def catch_all_inputs(m: types.Message):
         await m.answer(f"🎉 <b>{title}</b> ম্যানুয়ালি যুক্ত করা হয়েছে!")
         return
 
-    # --- ২. অটো আপলোড ফ্লো (/new) ---
+    # --- ২. অটো আপলোড ফ্লো (/new) এবং /auto কমান্ড প্রসেসিং ---
     if uid in admin_cache and m.text and state == "auto_name":
         admin_temp[uid] = {"step": "auto_file", "title": m.text.strip()}
         await m.answer(f"✅ মুভি: <b>{m.text}</b>\nএবার ভিডিও ফাইলটি পাঠান (Max 2GB)।", parse_mode="HTML")
         return
 
-    if uid in admin_cache and (m.document or m.video) and state == "auto_file":
+    # /new অথবা /auto এর ফাইল রিসিভ করার লজিক
+    if uid in admin_cache and (m.document or m.video) and (state == "auto_file" or state == "auto_wait_file"):
         file = m.video or m.document
         if file.file_size > 2000 * 1024 * 1024:
             return await m.answer("⚠️ ফাইলটি ২ জিবির চেয়ে বড়! দয়া করে <b>/post</b> কমান্ড ব্যবহার করে ম্যানুয়ালি আপলোড করুন।")
@@ -492,12 +501,25 @@ async def catch_all_inputs(m: types.Message):
         status_msg = await m.answer("⏳ প্রসেসিং শুরু হয়েছে... ভিডিও থেকে ৬টি ল্যান্ডস্কেপ স্ক্রিনশট নেওয়া হচ্ছে। দয়া করে অপেক্ষা করুন।")
         
         try:
+            # যদি ফুল অটো মোড হয়, নাম তৈরি করা
+            if state == "auto_wait_file":
+                counter_doc = await db.settings.find_one_and_update(
+                    {"id": "auto_counter"}, 
+                    {"$inc": {"count": 1}}, 
+                    upsert=True, 
+                    return_document=True
+                )
+                current_count = counter_doc.get('count', 1)
+                title = f"New Hot Sex Video Number {current_count}"
+            else:
+                title = admin_temp[uid]["title"]
+
             file_info = await bot.get_file(file.file_id)
             video_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
             
             # ভিডিও সাময়িক ডাউনলোড
-            video_path = f"temp_video_{uid}.mp4"
-            grid_path = f"grid_poster_{uid}.jpg"
+            video_path = f"temp_video_{uid}_{random.randint(100,999)}.mp4"
+            grid_path = f"grid_poster_{uid}_{random.randint(100,999)}.jpg"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(video_url) as resp:
@@ -511,10 +533,9 @@ async def catch_all_inputs(m: types.Message):
             if res:
                 # গ্রিড ফটো আপলোড
                 with open(grid_path, 'rb') as f:
-                    photo_msg = await bot.send_photo(m.chat.id, photo=types.BufferedInputFile(f.read(), filename="grid.jpg"), caption=f"🎬 {admin_temp[uid]['title']}\n⏳ Duration: {duration_str}")
+                    photo_msg = await bot.send_photo(m.chat.id, photo=types.BufferedInputFile(f.read(), filename="grid.jpg"), caption=f"🎬 {title}\n⏳ Duration: {duration_str}")
                     photo_id = photo_msg.photo[-1].file_id
                 
-                title = admin_temp[uid]["title"]
                 ftype = "video" if m.video else "document"
                 
                 await db.movies.insert_one({
@@ -526,14 +547,14 @@ async def catch_all_inputs(m: types.Message):
                 kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{me.username}?start=new")]])
                 await bot.send_photo(CHANNEL_ID, photo=photo_id, caption=f"🎥 <b>নতুন মুভি যুক্ত হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>", parse_mode="HTML", reply_markup=kb)
                 
-                await status_msg.edit_text(f"🎉 <b>{title}</b> অটো স্ক্রিনশট সহ সফলভাবে যুক্ত হয়েছে!")
+                await status_msg.edit_text(f"🎉 <b>{title}</b> স্ক্রিনশট সহ সফলভাবে যুক্ত হয়েছে!")
             else:
                 await status_msg.edit_text("❌ স্ক্রিনশট নিতে ব্যর্থ হয়েছে। দয়া করে /post ব্যবহার করুন।")
             
             # ক্লিনআপ
             if os.path.exists(video_path): os.remove(video_path)
             if os.path.exists(grid_path): os.remove(grid_path)
-            del admin_temp[uid]
+            if uid in admin_temp: del admin_temp[uid]
 
         except Exception as e:
             await status_msg.edit_text(f"❌ এরর: {str(e)}")
@@ -886,7 +907,7 @@ async def web_ui():
                         grid.innerHTML = "<p style='grid-column: span 1; text-align:center; color:gray; padding:20px;'>কোনো মুভি পাওয়া যায়নি!</p>";
                     } else {
                         grid.innerHTML = data.movies.map(m => {
-                            let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
+                            let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
                             let timerHtml = m.is_unlocked ? `<div class="unlock-timer" id="list_timer_${m._id}"></div>` : `<div class="step-overlay">Steps: 0/${TOTAL_STEPS}</div>`;
                             
                             return `
@@ -1082,8 +1103,6 @@ def parse_duration(time_str):
         total_seconds = int(time_str) * 3600
     return total_seconds if total_seconds > 0 else 86400
 
-import re
-
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     unlock_cfg = await db.settings.find_one({"id": "unlock_config"})
@@ -1140,17 +1159,6 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         movies.append(m)
         
     return {"movies": movies}
-
-# কমান্ড প্রসেসিং এ টাইম আপডেট করার জন্য
-@dp.message(Command("setunlocktime"))
-async def set_unlock_time_cmd(m: types.Message):
-    if m.from_user.id not in admin_cache: return
-    try:
-        raw_val = m.text.split(" ", 1)[1]
-        seconds = parse_duration(raw_val)
-        await db.settings.update_one({"id": "unlock_config"}, {"$set": {"seconds": seconds, "raw": raw_val}}, upsert=True)
-        await m.answer(f"✅ মুভি আনলক থাকার সময় সেট করা হয়েছে: <b>{raw_val}</b>", parse_mode="HTML")
-    except: await m.answer("⚠️ নিয়ম: `/setunlocktime 1h,10m,30s`", parse_mode="HTML")
 
 @app.get("/api/image/{photo_id}")
 async def get_image(photo_id: str):

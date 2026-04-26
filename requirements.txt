@@ -2,5 +2,7 @@ aiogram
 fastapi
 uvicorn
 motor
-apscheduler
 aiohttp
+apscheduler
+pydantic
+Pillow

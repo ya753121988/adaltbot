@@ -509,7 +509,7 @@ async def catch_all_inputs(m: types.Message):
                 })
                 
                 me = await bot.get_me()
-                kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{me.username}")]])
+                kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{me.username}?start=new")]])
                 await bot.send_photo(CHANNEL_ID, photo=photo_id, caption=f"🎥 <b>নতুন মুভি যুক্ত হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>", parse_mode="HTML", reply_markup=kb)
                 
                 await status_msg.edit_text(f"🎉 <b>{title}</b> অটো স্ক্রিনশট সহ সফলভাবে যুক্ত হয়েছে!")

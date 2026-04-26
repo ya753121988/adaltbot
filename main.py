@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bson import ObjectId
 from pydantic import BaseModel
 from PIL import Image # নতুন ইমেজ লাইব্রেরি
+from pyrogram import Client as PyroClient # ২ জিবি ফাইল সাপোর্ট করার জন্য এড করা হলো
 
 # --- কনফিগারেশন ---
 TOKEN = os.getenv("BOT_TOKEN", "8615600822:AAGj3eUYdhRc0_uK18fpw0UzmgyGrdc9glU")
@@ -19,9 +20,16 @@ OWNER_ID = int(os.getenv("ADMIN_ID", "7525127704"))
 APP_URL = os.getenv("APP_URL", "https://rare-rori-yeasinvai-bf8e2c68.koyeb.app/")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "-1003275619931") # আপনার চ্যানেলের আইডি এখানে দিন
 
+# ২ জিবি ফাইল ডাউনলোডের জন্য API ID এবং HASH (এড করা হলো)
+API_ID = int(os.getenv("API_ID", "29904834"))
+API_HASH = os.getenv("API_HASH", "8b4fd9ef578af114502feeafa2d31938")
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 app = FastAPI()
+
+# Pyrogram ক্লায়েন্ট সেটআপ (বড় ফাইল হ্যান্ডেল করার জন্য)
+pyro_bot = PyroClient("bot_pyro_session", api_id=API_ID, api_hash=API_HASH, bot_token=TOKEN)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -493,8 +501,6 @@ async def catch_all_inputs(m: types.Message):
 
     if uid in admin_cache and (m.document or m.video) and (state == "auto_file" or state == "auto_serial_mode"):
         file = m.video or m.document
-        if file.file_size > 2000 * 1024 * 1024:
-            return await m.answer("⚠️ ফাইলটি ২ জিবির চেয়ে বড়! দয়া করে <b>/post</b> কমান্ড ব্যবহার করে ম্যানুয়ালি আপলোড করুন।")
         
         status_msg = await m.answer("⏳ প্রসেসিং শুরু হয়েছে... ভিডিও থেকে ৬টি ল্যান্ডস্কেপ স্ক্রিনশট নেওয়া হচ্ছে। দয়া করে অপেক্ষা করুন।")
         
@@ -513,17 +519,10 @@ async def catch_all_inputs(m: types.Message):
             else:
                 title = admin_temp[uid]["title"]
 
-            file_info = await bot.get_file(file.file_id)
-            video_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
-            
-            # ভিডিও সাময়িক ডাউনলোড
-            video_path = f"temp_video_{uid}_{random.randint(100,999)}.mp4"
+            # --- Pyrogram দিয়ে ২ জিবি ফাইল ডাউনলোড লজিক (নিচে আপডেট করা হলো) ---
+            # ২ জিবি এর ফাইল Bot API দিয়ে ডাউনলোড হয় না, তাই Pyrogram ব্যবহার করা হলো:
+            video_path = await pyro_bot.download_media(m.video or m.document)
             grid_path = f"grid_poster_{uid}_{random.randint(100,999)}.jpg"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(video_url) as resp:
-                    with open(video_path, 'wb') as f:
-                        f.write(await resp.read())
             
             # স্ক্রিনশট গ্রিড তৈরি (৬টি স্ক্রিনশট ২x৩ গ্রিড)
             res, duration_sec = await create_screenshot_grid(video_path, grid_path)
@@ -1235,6 +1234,7 @@ async def handle_request(data: ReqModel):
 
 async def start():
     await load_admins()
+    await pyro_bot.start() # Pyrogram ক্লায়েন্ট স্টার্ট করা হলো (২ জিবি ফাইল সাপোর্ট করার জন্য)
     port = int(os.getenv("PORT", 8000))
     config = uvicorn.Config(app, host="0.0.0.0", port=port, loop="asyncio")
     server = uvicorn.Server(config)

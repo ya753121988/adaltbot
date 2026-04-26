@@ -1,4 +1,4 @@
-import os, asyncio, datetime, uvicorn, random
+import os, asyncio, datetime, uvicorn, random, re
 import aiohttp
 from fastapi import FastAPI, Body, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -29,6 +29,19 @@ db = client['movie_database']
 
 admin_temp = {}
 admin_cache = set([OWNER_ID]) 
+
+# --- নতুন টাইম পার্সার (Flexible Time: 1h,1m,1s ফরম্যাট সাপোর্ট করার জন্য) ---
+def parse_duration(time_str):
+    total_seconds = 0
+    hours = re.search(r'(\d+)h', time_str)
+    minutes = re.search(r'(\d+)m', time_str)
+    seconds = re.search(r'(\d+)s', time_str)
+    if hours: total_seconds += int(hours.group(1)) * 3600
+    if minutes: total_seconds += int(minutes.group(1)) * 60
+    if seconds: total_seconds += int(seconds.group(1))
+    if not any([hours, minutes, seconds]) and time_str.isdigit():
+        total_seconds = int(time_str) * 3600 # যদি শুধু সংখ্যা দেয় তবে ঘন্টা হিসেবে ধরবে
+    return total_seconds if total_seconds > 0 else 86400
 
 async def load_admins():
     admin_cache.clear()
@@ -149,14 +162,16 @@ async def set_steps_cmd(m: types.Message):
         await m.answer(f"✅ অ্যাড স্টেপ সংখ্যা এখন: <b>{steps}</b>", parse_mode="HTML")
     except: await m.answer("⚠️ নিয়ম: `/setsteps 2`")
 
+# --- আপডেট করা সেট আনলক টাইম কমান্ড (Flexible Time Support) ---
 @dp.message(Command("setunlocktime"))
 async def set_unlock_time_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     try:
-        hours = int(m.text.split(" ")[1])
-        await db.settings.update_one({"id": "unlock_config"}, {"$set": {"hours": hours}}, upsert=True)
-        await m.answer(f"✅ মুভি আনলক থাকার সময় সেট করা হয়েছে: <b>{hours} ঘণ্টা</b>", parse_mode="HTML")
-    except: await m.answer("⚠️ নিয়ম: `/setunlocktime 12` (ঘণ্টা হিসেবে)")
+        raw_val = m.text.split(" ", 1)[1]
+        seconds = parse_duration(raw_val)
+        await db.settings.update_one({"id": "unlock_config"}, {"$set": {"seconds": seconds, "raw": raw_val}}, upsert=True)
+        await m.answer(f"✅ মুভি আনলক থাকার সময় সেট করা হয়েছে: <b>{raw_val}</b>", parse_mode="HTML")
+    except: await m.answer("⚠️ নিয়ম: <code>/setunlocktime 1h,1m,10s</code>")
 
 @dp.message(Command("setnotice"))
 async def set_notice_cmd(m: types.Message):
@@ -213,7 +228,7 @@ async def start_cmd(message: types.Message):
             "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on</code> বা <code>/protect off</code>\n"
             "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
-            "🔸 আনলক টাইম: <code>/setunlocktime [ঘণ্টা]</code>\n"
+            "🔸 আনলক টাইম: <code>/setunlocktime [সময়]</code>\n"
             "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
             "\n🆕 <b>অ্যাড সেটিংস:</b>\n"
             "🔸 লিঙ্ক অ্যাড: <code>/addlink [URL]</code>\n"
@@ -620,6 +635,14 @@ async def web_ui():
             let currentAdStep = 1;
             let currentMovieId = "";
 
+            // ইংলিশ ভয়েস ফাংশন
+            function playVoice(text) {
+                const msg = new SpeechSynthesisUtterance();
+                msg.text = text;
+                msg.lang = 'en-US';
+                window.speechSynthesis.speak(msg);
+            }
+
             if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
                 if(tg.initDataUnsafe.user.photo_url) document.getElementById('uPic').src = tg.initDataUnsafe.user.photo_url;
@@ -654,7 +677,11 @@ async def web_ui():
                 const h = Math.floor(seconds / 3600);
                 const m = Math.floor((seconds % 3600) / 60);
                 const s = Math.floor(seconds % 60);
-                return `${h}h ${m}m ${s}s`;
+                let res = "";
+                if(h > 0) res += h + "h ";
+                if(m > 0) res += m + "m ";
+                if(s > 0 || res==="") res += s + "s";
+                return res;
             }
 
             function startLiveCountdown(elementId, seconds) {
@@ -804,32 +831,22 @@ async def web_ui():
                 document.getElementById('btnNext').style.display = 'none';
                 document.getElementById('timer').innerText = "15";
                 
-                // ডিরেক্ট লিঙ্ক নাকি মনিটেগ জোন - লজিক আলাদা করা
-                // উদাহরণ: জোড় স্টেপে মনিটেগ, বিজোড় স্টেপে ডিরেক্ট লিঙ্ক (অথবা উল্টো)
-                let useMonetag = false;
-                if(MONETAG_ON && ADLINK_ON) {
-                    useMonetag = (currentAdStep % 2 === 0);
-                } else if(MONETAG_ON) {
-                    useMonetag = true;
-                }
-                
+                let useMonetag = (MONETAG_ON && (currentAdStep % 2 === 0 || !ADLINK_ON));
+                window.currentUseMonetag = useMonetag;
+
                 if(useMonetag) {
-                    document.getElementById('adMsg').innerText = "মনিটেগ অ্যাডটি ওপেন করুন এবং মুভি আনলক করুন।";
-                    document.getElementById('btnVisit').href = "#"; // মনিটেগ নিজে লোড হবে
+                    document.getElementById('adMsg').innerText = "নিচের আনলক বাটনে ক্লিক করুন এবং অ্যাড লোড হওয়া পর্যন্ত অপেক্ষা করুন।";
+                    document.getElementById('btnVisit').innerText = "Unlock Movie (Click)";
+                    document.getElementById('btnVisit').href = "javascript:void(0)";
                 } else {
-                    document.getElementById('adMsg').innerText = "ডিরেক্ট লিঙ্ক অ্যাডটি ওপেন করুন এবং মুভি আনলক করুন।";
-                    let linkToOpen = "#";
-                    if(ADLINK_ON && DIRECT_LINKS.length > 0) {
-                        linkToOpen = DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)];
-                    }
+                    document.getElementById('adMsg').innerText = "নিচের বাটনে ক্লিক করে অ্যাড ভিজিট করুন এবং ১৫ সেকেন্ড অপেক্ষা করুন।";
+                    document.getElementById('btnVisit').innerText = "Visit Ad & Unlock";
+                    let linkToOpen = DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)] || "#";
                     document.getElementById('btnVisit').href = linkToOpen;
                 }
-                
-                window.currentUseMonetag = useMonetag;
             }
 
             function startTimer() {
-                // Monetag দেখানো যদি লজিক অনুযায়ী মনিটেগ স্টেপ হয়
                 if(window.currentUseMonetag && MONETAG_ON && typeof window['show_' + ZONE_ID] === 'function') {
                     window['show_' + ZONE_ID]();
                 }
@@ -847,6 +864,7 @@ async def web_ui():
                         document.getElementById('btnVisit').style.display = 'none';
                         document.getElementById('btnNext').style.display = 'block';
                         document.getElementById('adMsg').innerText = "এই ধাপটি সফলভাবে সম্পন্ন হয়েছে! Next বাটনে ক্লিক করুন।";
+                        playVoice("Verification complete, please click next step.");
                     }
                 }, 1000);
             }
@@ -866,6 +884,7 @@ async def web_ui():
                 await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId: uid, movieId: id})});
                 document.getElementById('adScreen').style.display = 'none';
                 document.getElementById('successModal').style.display = 'flex';
+                playVoice("Movie sent to your inbox, check it now.");
                 setTimeout(() => { loadTrending(); loadMovies(currentPage); }, 1000); 
             }
 
@@ -901,19 +920,34 @@ async def web_ui():
 # ৫. এপিআই সেকশন (আপনার আগের কোড)
 # ==========================================
 
+# নতুন টাইম পার্সার ফাংশন
+def parse_duration(time_str):
+    total_seconds = 0
+    hours = re.search(r'(\d+)h', time_str)
+    minutes = re.search(r'(\d+)m', time_str)
+    seconds = re.search(r'(\d+)s', time_str)
+    if hours: total_seconds += int(hours.group(1)) * 3600
+    if minutes: total_seconds += int(minutes.group(1)) * 60
+    if seconds: total_seconds += int(seconds.group(1))
+    if not any([hours, minutes, seconds]) and time_str.isdigit():
+        total_seconds = int(time_str) * 3600
+    return total_seconds if total_seconds > 0 else 86400
+
+import re
+
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
-    unlocked_movie_ids = []
-    # আনলক টাইম সেটিংস থেকে নেওয়া
     unlock_cfg = await db.settings.find_one({"id": "unlock_config"})
-    u_hours = unlock_cfg['hours'] if unlock_cfg else 24
+    if unlock_cfg:
+        if 'seconds' in unlock_cfg: u_seconds = unlock_cfg['seconds']
+        else: u_seconds = unlock_cfg.get('hours', 24) * 3600
+    else: u_seconds = 86400
 
     unlocked_map = {}
     if uid != 0:
-        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=u_hours)
+        time_limit = datetime.datetime.utcnow() - datetime.timedelta(seconds=u_seconds)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
-            unlocked_movie_ids.append(u["movie_id"])
-            expires_at = u["unlocked_at"] + datetime.timedelta(hours=u_hours)
+            expires_at = u["unlocked_at"] + datetime.timedelta(seconds=u_seconds)
             unlocked_map[u["movie_id"]] = int((expires_at - datetime.datetime.utcnow()).total_seconds())
 
     movies = []
@@ -921,7 +955,7 @@ async def trending_movies(uid: int = 0):
         m_id = str(m["_id"])
         m["_id"] = m_id
         m["clicks"] = m.get("clicks", 0)
-        m["is_unlocked"] = m_id in unlocked_movie_ids 
+        m["is_unlocked"] = m_id in unlocked_map 
         m["rem_sec"] = unlocked_map.get(m_id, 0)
         movies.append(m)
     return movies
@@ -932,20 +966,17 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
     skip = (page - 1) * limit
     query = {"title": {"$regex": q, "$options": "i"}} if q else {}
     
-    total_movies = await db.movies.count_documents(query)
-    total_pages = (total_movies + limit - 1) // limit
-
-    # আনলক টাইম সেটিংস থেকে নেওয়া
     unlock_cfg = await db.settings.find_one({"id": "unlock_config"})
-    u_hours = unlock_cfg['hours'] if unlock_cfg else 24
+    if unlock_cfg:
+        if 'seconds' in unlock_cfg: u_seconds = unlock_cfg['seconds']
+        else: u_seconds = unlock_cfg.get('hours', 24) * 3600
+    else: u_seconds = 86400
 
-    unlocked_movie_ids = []
     unlocked_map = {}
     if uid != 0:
-        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=u_hours)
+        time_limit = datetime.datetime.utcnow() - datetime.timedelta(seconds=u_seconds)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
-            unlocked_movie_ids.append(u["movie_id"])
-            expires_at = u["unlocked_at"] + datetime.timedelta(hours=u_hours)
+            expires_at = u["unlocked_at"] + datetime.timedelta(seconds=u_seconds)
             unlocked_map[u["movie_id"]] = int((expires_at - datetime.datetime.utcnow()).total_seconds())
 
     movies = []
@@ -953,12 +984,22 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         m_id = str(m["_id"])
         m["_id"] = m_id
         m["clicks"] = m.get("clicks", 0)
-        m["created_at"] = str(m.get("created_at", ""))
-        m["is_unlocked"] = m_id in unlocked_movie_ids 
+        m["is_unlocked"] = m_id in unlocked_map 
         m["rem_sec"] = unlocked_map.get(m_id, 0)
         movies.append(m)
         
-    return {"movies": movies, "total_pages": total_pages}
+    return {"movies": movies}
+
+# কমান্ড প্রসেসিং এ টাইম আপডেট করার জন্য
+@dp.message(Command("setunlocktime"))
+async def set_unlock_time_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        raw_val = m.text.split(" ", 1)[1]
+        seconds = parse_duration(raw_val)
+        await db.settings.update_one({"id": "unlock_config"}, {"$set": {"seconds": seconds, "raw": raw_val}}, upsert=True)
+        await m.answer(f"✅ মুভি আনলক থাকার সময় সেট করা হয়েছে: <b>{raw_val}</b>", parse_mode="HTML")
+    except: await m.answer("⚠️ নিয়ম: `/setunlocktime 1h,10m,30s`", parse_mode="HTML")
 
 @app.get("/api/image/{photo_id}")
 async def get_image(photo_id: str):

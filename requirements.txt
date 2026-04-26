@@ -1,8 +1,10 @@
-aiogram
 fastapi
 uvicorn
-motor
+aiogram
 aiohttp
+motor
 apscheduler
 pydantic
 Pillow
+pyrogram
+tgcrypto

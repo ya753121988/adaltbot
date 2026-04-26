@@ -515,7 +515,7 @@ async def catch_all_inputs(m: types.Message):
                     return_document=True
                 )
                 count_val = serial_res.get('value', 1)
-                title = f"New Hot Sex Video Number হট সেক্স ভাইরাল ভিডিও নাম্বার {count_val}"
+                title = f"🥵 New Hot Sex Video Number🥵 হট সেক্স ভাইরাল ভিডিও নাম্বার 🥵 {count_val}"
             else:
                 title = admin_temp[uid]["title"]
 

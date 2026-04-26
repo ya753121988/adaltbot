@@ -31,38 +31,51 @@ db = client['movie_database']
 admin_temp = {}
 admin_cache = set([OWNER_ID]) 
 
-# --- নতুন স্ক্রিনশট গ্রিড ফাংশন (১৬টি স্ক্রিনশট ৪x৪ ল্যান্ডস্কেপ গ্রিড) ---
+# --- ভিডিও ডিউরেশন ফরম্যাট করার ফাংশন ---
+def get_duration_display(seconds):
+    try:
+        seconds = int(float(seconds))
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        if h > 0: return f"{h}h {m}m"
+        return f"{m}m {s}s"
+    except: return "0m"
+
+# --- নতুন স্ক্রিনশট গ্রিড ফাংশন (৬টি স্ক্রিনশট ২ সারি ৩ কলাম ল্যান্ডস্কেপ গ্রিড) ---
 async def create_screenshot_grid(video_path, output_path):
     try:
         # ভিডিওর ডিউরেশন বের করা
         cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{video_path}"'
         duration = float(subprocess.check_output(cmd, shell=True).decode().strip())
         
-        interval = duration / 17
+        interval = duration / 7 # ৬টি গ্রিডের জন্য গ্যাপ
         screenshots = []
-        for i in range(1, 17):
+        for i in range(1, 7):
             time_pos = i * interval
-            temp_out = f"temp_frame_{i}.jpg"
+            temp_out = f"temp_frame_{i}_{random.randint(100,999)}.jpg"
             # FFMPEG দিয়ে ফ্রেম নেওয়া
             subprocess.run(f'ffmpeg -ss {time_pos} -i "{video_path}" -vframes 1 -q:v 2 "{temp_out}" -y', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            screenshots.append(temp_out)
+            if os.path.exists(temp_out):
+                screenshots.append(temp_out)
         
-        # PIL দিয়ে গ্রিড তৈরি
+        if not screenshots: return False, 0
+        
+        # PIL দিয়ে গ্রিড তৈরি (৩ কলাম, ২ সারি)
         images = [Image.open(x) for x in screenshots]
         w, h = images[0].size
-        grid = Image.new('RGB', (w*4, h*4))
+        grid = Image.new('RGB', (w*3, h*2))
         
         for idx, img in enumerate(images):
-            x = (idx % 4) * w
-            y = (idx // 4) * h
+            x = (idx % 3) * w
+            y = (idx // 3) * h
             grid.paste(img, (x, y))
             img.close()
             os.remove(screenshots[idx])
             
         grid.save(output_path)
-        return True
+        return True, duration
     except Exception:
-        return False
+        return False, 0
 
 # --- নতুন টাইম পার্সার (Flexible Time: 1h,1m,1s ফরম্যাট সাপোর্ট করার জন্য) ---
 def parse_duration(time_str):
@@ -454,7 +467,7 @@ async def catch_all_inputs(m: types.Message):
         await db.movies.insert_one({
             "title": title, "photo_id": admin_temp[uid]["photo_id"], 
             "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], 
-            "clicks": 0, "created_at": datetime.datetime.utcnow()
+            "clicks": 0, "duration": "Unknown", "created_at": datetime.datetime.utcnow()
         })
         try:
             me = await bot.get_me()
@@ -476,28 +489,29 @@ async def catch_all_inputs(m: types.Message):
         if file.file_size > 2000 * 1024 * 1024:
             return await m.answer("⚠️ ফাইলটি ২ জিবির চেয়ে বড়! দয়া করে <b>/post</b> কমান্ড ব্যবহার করে ম্যানুয়ালি আপলোড করুন।")
         
-        status_msg = await m.answer("⏳ প্রসেসিং শুরু হয়েছে... ভিডিও থেকে ১৬টি স্ক্রিনশট নেওয়া হচ্ছে। দয়া করে অপেক্ষা করুন।")
+        status_msg = await m.answer("⏳ প্রসেসিং শুরু হয়েছে... ভিডিও থেকে ৬টি ল্যান্ডস্কেপ স্ক্রিনশট নেওয়া হচ্ছে। দয়া করে অপেক্ষা করুন।")
         
         try:
             file_info = await bot.get_file(file.file_id)
             video_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
             
             # ভিডিও সাময়িক ডাউনলোড
-            video_path = "temp_video.mp4"
-            grid_path = "grid_poster.jpg"
+            video_path = f"temp_video_{uid}.mp4"
+            grid_path = f"grid_poster_{uid}.jpg"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(video_url) as resp:
                     with open(video_path, 'wb') as f:
                         f.write(await resp.read())
             
-            # স্ক্রিনশট গ্রিড তৈরি
-            res = await create_screenshot_grid(video_path, grid_path)
+            # স্ক্রিনশট গ্রিড তৈরি (৬টি স্ক্রিনশট ২x৩ গ্রিড)
+            res, duration_sec = await create_screenshot_grid(video_path, grid_path)
+            duration_str = get_duration_display(duration_sec) if res else "0m"
             
             if res:
                 # গ্রিড ফটো আপলোড
                 with open(grid_path, 'rb') as f:
-                    photo_msg = await bot.send_photo(m.chat.id, photo=types.BufferedInputFile(f.read(), filename="grid.jpg"), caption="Auto Generated Poster")
+                    photo_msg = await bot.send_photo(m.chat.id, photo=types.BufferedInputFile(f.read(), filename="grid.jpg"), caption=f"🎬 {admin_temp[uid]['title']}\n⏳ Duration: {duration_str}")
                     photo_id = photo_msg.photo[-1].file_id
                 
                 title = admin_temp[uid]["title"]
@@ -505,7 +519,7 @@ async def catch_all_inputs(m: types.Message):
                 
                 await db.movies.insert_one({
                     "title": title, "photo_id": photo_id, "file_id": file.file_id, 
-                    "file_type": ftype, "clicks": 0, "created_at": datetime.datetime.utcnow()
+                    "file_type": ftype, "clicks": 0, "duration": duration_str, "created_at": datetime.datetime.utcnow()
                 })
                 
                 me = await bot.get_me()
@@ -587,8 +601,9 @@ async def web_ui():
             /* ব্যানার অ্যাড স্লট */
             .ad-slot { width: 100%; display: flex; justify-content: center; align-items: center; padding: 10px 0; overflow: hidden; min-height: 50px; background: rgba(30, 41, 59, 0.5); margin: 5px 0; }
 
-            .search-box { padding:15px; }
-            .search-input { width:100%; padding:14px; border-radius:25px; border:none; outline:none; text-align:center; background:#1e293b; color:#fff; font-size:16px; transition: 0.3s; }
+            .search-box { padding:15px; display: flex; align-items: center; gap: 10px; }
+            .back-btn { background: #1e293b; color: white; border: none; padding: 10px 15px; border-radius: 50%; cursor: pointer; display: none; }
+            .search-input { flex: 1; padding:14px; border-radius:25px; border:none; outline:none; text-align:center; background:#1e293b; color:#fff; font-size:16px; transition: 0.3s; }
             .search-input:focus { box-shadow: 0 0 10px rgba(248,113,113,0.5); }
             
             .section-title { padding: 5px 15px 10px; font-size: 18px; font-weight: bold; color: #f87171; display:flex; align-items:center; gap:8px;}
@@ -614,17 +629,20 @@ async def web_ui():
             /* ল্যান্ডস্কেপ ইমেজ হাইট */
             .post-content img { width:100%; height:200px; object-fit:cover; display:block; border-radius: 10px; }
             
+            /* ভিডিও ডিউরেশন ব্যাজ */
+            .duration-badge { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; z-index: 105; border: 1px solid rgba(255,255,255,0.2); }
+
             .tag { position:absolute; top:8px; right:8px; padding:4px 6px; border-radius:6px; font-weight:bold; font-size:10px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 100;}
             .tag-locked { background:rgba(0,0,0,0.85); color:#f87171; border: 1px solid #f87171; }
             .tag-unlocked { background:rgba(0,0,0,0.85); color:#10b981; border: 1px solid #10b981; }
             
             /* পোস্টারের উপরে স্টেপ ওভারলে */
-            .step-overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: #f87171; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; border: 1px solid #f87171; z-index: 100; }
+            .step-overlay { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: #f87171; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; border: 1px solid #f87171; z-index: 100; display:none; }
             
             /* আনলক টাইমার ওভারলে */
             .unlock-timer { position: absolute; top: 10px; right: 10px; background: rgba(16, 185, 129, 0.9); color: white; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; z-index: 101; display: none; }
 
-            .top-badge { position:absolute; top:8px; left:8px; background:red; color:white; padding:3px 6px; border-radius:6px; font-size:10px; font-weight:bold; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index:10;}
+            .top-badge { position:absolute; top:8px; left:8px; background:red; color:white; padding:3px 6px; border-radius:6px; font-size:10px; font-weight:bold; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index:10; display:none;}
             .view-badge { position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.7); color:#fff; padding:3px 6px; border-radius:6px; font-size:11px; font-weight:bold; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
 
             .card-footer { padding:12px; font-size:16px; font-weight:bold; text-align:center; word-wrap: break-word; color:#e2e8f0; line-height:1.4; }
@@ -645,6 +663,8 @@ async def web_ui():
 
             /* অ্যাড স্ক্রিন নতুন ডিজাইন (ক্লিক সিস্টেমের জন্য আপডেট করা) */
             .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; padding: 20px; }
+            .screen-back { position: absolute; top: 20px; left: 20px; background: #1e293b; color: #f87171; padding: 10px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 5px; border: 1px solid #f87171; }
+            
             .ad-poster-img { width: 100%; max-width: 300px; height: 180px; object-fit: cover; border-radius: 15px; margin-bottom: 20px; border: 2px solid #f87171; }
             .progress-container { width: 100%; max-width: 300px; background: #1e293b; height: 10px; border-radius: 5px; margin-bottom: 10px; overflow: hidden; }
             .progress-bar { height: 100%; background: #f87171; width: 0%; transition: width 0.3s; }
@@ -676,6 +696,7 @@ async def web_ui():
             <div class="ad-slot">{{HEADER_AD}}</div>
 
             <div class="search-box">
+                <button class="back-btn" id="searchBack" onclick="clearSearch()"><i class="fa-solid fa-arrow-left"></i></button>
                 <input type="text" id="searchInput" class="search-input" placeholder="মুভি বা ওয়েব সিরিজ খুঁজুন...">
             </div>
 
@@ -697,6 +718,7 @@ async def web_ui():
         </div>
 
         <div id="adScreen" class="ad-screen">
+            <div class="screen-back" onclick="closeAdScreen()"><i class="fa-solid fa-arrow-left"></i> ফিরে যান</div>
             <img id="adMoviePoster" class="ad-poster-img" src="">
             <div class="step-text" id="stepLabel">Step 1/2</div>
             <div class="percent-text" id="percentLabel">0% Completed</div>
@@ -827,6 +849,7 @@ async def web_ui():
                         const html = `
                         <div class="trending-card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked}, '${m.photo_id}')">
                             <div class="post-content">
+                                <div class="duration-badge">${m.duration || '0m'}</div>
                                 <div class="top-badge">🔥 TOP</div>
                                 ${timerHtml}
                                 <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
@@ -869,6 +892,7 @@ async def web_ui():
                             return `
                             <div class="card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked}, '${m.photo_id}')">
                                 <div class="post-content">
+                                    <div class="duration-badge">${m.duration || '0m'}</div>
                                     ${timerHtml}
                                     <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
                                     ${tagHtml}
@@ -908,10 +932,24 @@ async def web_ui():
             let timeout = null;
             document.getElementById('searchInput').addEventListener('input', function(e) {
                 clearTimeout(timeout); searchQuery = e.target.value.trim();
-                if(searchQuery !== "") document.getElementById('trendingWrapper').style.display = 'none';
-                else { document.getElementById('trendingWrapper').style.display = 'block'; loadTrending(); }
+                if(searchQuery !== "") {
+                    document.getElementById('trendingWrapper').style.display = 'none';
+                    document.getElementById('searchBack').style.display = 'block';
+                }
+                else { 
+                    clearSearch();
+                }
                 timeout = setTimeout(() => { loadMovies(1); }, 500); 
             });
+
+            function clearSearch() {
+                searchQuery = "";
+                document.getElementById('searchInput').value = "";
+                document.getElementById('searchBack').style.display = 'none';
+                document.getElementById('trendingWrapper').style.display = 'block';
+                loadTrending();
+                loadMovies(1);
+            }
 
             function handleMovieClick(id, isUnlocked, photoId) {
                 if(isUnlocked) {
@@ -989,6 +1027,8 @@ async def web_ui():
                 }
             }
 
+            function closeAdScreen() { document.getElementById('adScreen').style.display = 'none'; }
+
             async function sendFile(id) {
                 await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId: uid, movieId: id})});
                 document.getElementById('adScreen').style.display = 'none';
@@ -1064,6 +1104,7 @@ async def trending_movies(uid: int = 0):
         m_id = str(m["_id"])
         m["_id"] = m_id
         m["clicks"] = m.get("clicks", 0)
+        m["duration"] = m.get("duration", "0m")
         m["is_unlocked"] = m_id in unlocked_map 
         m["rem_sec"] = unlocked_map.get(m_id, 0)
         movies.append(m)
@@ -1093,6 +1134,7 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         m_id = str(m["_id"])
         m["_id"] = m_id
         m["clicks"] = m.get("clicks", 0)
+        m["duration"] = m.get("duration", "0m")
         m["is_unlocked"] = m_id in unlocked_map 
         m["rem_sec"] = unlocked_map.get(m_id, 0)
         movies.append(m)

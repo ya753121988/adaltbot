@@ -1,5 +1,3 @@
---- START OF FILE Paste April 27, 2026 - 1:02AM ---
-
 import os, asyncio, datetime, uvicorn, random, re, subprocess
 import aiohttp
 from fastapi import FastAPI, Body, Request
@@ -273,9 +271,9 @@ async def start_cmd(message: types.Message):
         text = (
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>পোস্ট কমান্ড:</b>\n"
-            "🔹 <code>/post</code> - ম্যানুয়াল আপলোড (আগের মত)\n"
-            "🔹 <code>/new</code> - অটো স্ক্রিনশট আপলোড (নতুন)\n"
-            "🔹 <code>/auto</code> - ফুল অটো (সিরিয়াল নাম + স্ক্রিনশট)\n\n"
+            "🔹 <code>/post</code> - ম্যানুয়াল আপলোড\n"
+            "🔹 <code>/new</code> - অটো স্ক্রিনশট (নাম দিয়ে)\n"
+            "🔹 <code>/auto</code> - অটো পোস্ট (Hot Sex সিরিয়াল)\n\n"
             "⚙️ <b>সাধারণ কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
             "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
@@ -297,7 +295,7 @@ async def start_cmd(message: types.Message):
         if uid == OWNER_ID:
             text += "\n👑 <b>ওনার কমান্ড:</b>\n🔸 অ্যাড অ্যাডমিন: <code>/addadmin ID</code>\n🔸 ডিলিট অ্যাডমিন: <code>/deladmin ID</code>\n🔸 অ্যাডমিন লিস্ট: <code>/adminlist</code>\n"
             
-        text += "\n📥 <b>মুভি আপলোড করতে /post বা /new কমান্ড ব্যবহার করুন।</b>"
+        text += "\n📥 <b>মুভি আপলোড করতে /post, /new বা /auto কমান্ড ব্যবহার করুন।</b>"
     else:
         text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{uid}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
     await message.answer(text, reply_markup=markup, parse_mode="HTML")
@@ -318,8 +316,8 @@ async def new_cmd(m: types.Message):
 @dp.message(Command("auto"))
 async def auto_post_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
-    admin_temp[m.from_user.id] = {"step": "auto_full_mode"}
-    await m.answer("🤖 <b>ফুল অটো মোড:</b> শুধু ভিডিও ফাইলটি পাঠান।\nবট অটোমেটিক সিরিয়াল নাম্বার ও স্ক্রিনশট দিয়ে পোস্ট করে দিবে।")
+    admin_temp[m.from_user.id] = {"step": "auto_hot_mode"}
+    await m.answer("🔞 <b>Hot Sex অটো মোড:</b> শুধু ভিডিও ফাইলটি পাঠান।\nবট অটোমেটিক সিরিয়াল নাম্বার (১, ২, ৩...) দিয়ে পোস্ট করবে।")
 
 @dp.message(Command("setsitename"))
 async def set_site_name(m: types.Message):
@@ -487,13 +485,13 @@ async def catch_all_inputs(m: types.Message):
         await m.answer(f"🎉 <b>{title}</b> ম্যানুয়ালি যুক্ত করা হয়েছে!")
         return
 
-    # --- ২. অটো আপলোড ফ্লো (/new) ---
+    # --- ২. অটো আপলোড ফ্লো (/new) এবং /auto কমান্ড প্রসেসিং ---
     if uid in admin_cache and m.text and state == "auto_name":
         admin_temp[uid] = {"step": "auto_file", "title": m.text.strip()}
         await m.answer(f"✅ মুভি: <b>{m.text}</b>\nএবার ভিডিও ফাইলটি পাঠান (Max 2GB)।", parse_mode="HTML")
         return
 
-    if uid in admin_cache and (m.document or m.video) and (state == "auto_file" or state == "auto_full_mode"):
+    if uid in admin_cache and (m.document or m.video) and (state == "auto_file" or state == "auto_hot_mode"):
         file = m.video or m.document
         if file.file_size > 2000 * 1024 * 1024:
             return await m.answer("⚠️ ফাইলটি ২ জিবির চেয়ে বড়! দয়া করে <b>/post</b> কমান্ড ব্যবহার করে ম্যানুয়ালি আপলোড করুন।")
@@ -502,7 +500,7 @@ async def catch_all_inputs(m: types.Message):
         
         try:
             # --- /auto কমান্ডের জন্য অটো টাইটেল জেনারেশন ---
-            if state == "auto_full_mode":
+            if state == "auto_hot_mode":
                 # ডাটাবেস থেকে বর্তমান কাউন্ট নেয়া এবং ১ বাড়ানো
                 res_counter = await db.settings.find_one_and_update({"id": "auto_post_counter"}, {"$inc": {"count": 1}}, upsert=True, return_document=True)
                 count = res_counter.get('count', 1)

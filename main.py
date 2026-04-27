@@ -98,6 +98,17 @@ def parse_duration(time_str):
         total_seconds = int(time_str) * 3600 # যদি শুধু সংখ্যা দেয় তবে ঘন্টা হিসেবে ধরবে
     return total_seconds if total_seconds > 0 else 86400
 
+# --- নতুন ব্লিংক লিঙ্ক পার্সার (চ্যানেল আইডি ও লাস্ট মেসেজ আইডি বের করার জন্য) ---
+def parse_blink_link(link):
+    pattern = r"t\.me/(?:c/)?([^/]+)/(\d+)"
+    match = re.search(pattern, link)
+    if match:
+        chat_id = match.group(1)
+        if chat_id.isdigit(): chat_id = int("-100" + chat_id)
+        msg_id = int(match.group(2))
+        return chat_id, msg_id
+    return None, None
+
 async def load_admins():
     admin_cache.clear()
     admin_cache.add(OWNER_ID)
@@ -119,6 +130,63 @@ async def auto_delete_worker():
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
         except Exception: pass
         await asyncio.sleep(60)
+
+# --- নতুন ব্লিংক ইন্ডেক্সিং ওয়ার্কার (১ থেকে লাস্ট আইডি পর্যন্ত) ---
+async def blink_worker(chat_id, last_id, admin_id):
+    await bot.send_message(admin_id, f"🚀 <b>ব্লিংক প্রসেস শুরু হয়েছে!</b>\nআইডি 1 থেকে {last_id} পর্যন্ত ফাইল চেক করে অটো আপলোড করা হচ্ছে।", parse_mode="HTML")
+    
+    success_count = 0
+    for current_id in range(1, last_id + 1):
+        try:
+            # Pyrogram দিয়ে মেসেজ গেট করা
+            msg = await pyro_bot.get_messages(chat_id, current_id)
+            if not msg or msg.empty: continue
+            
+            # শুধুমাত্র ভিডিও বা ভিডিও ডকুমেন্ট থাকলে প্রসেস করবে
+            if msg.video or (msg.document and "video" in msg.document.mime_type):
+                # সিরিয়াল কাউন্টার আপডেট
+                serial_res = await db.settings.find_one_and_update(
+                    {"id": "auto_post_count"},
+                    {"$inc": {"value": 1}},
+                    upsert=True,
+                    return_document=True
+                )
+                count_val = serial_res.get('value', 1)
+                title = f"🥵 New Hot Sex Video Number🥵 হট সেক্স ভাইরাল ভিডিও নাম্বার 🥵 {count_val}"
+
+                # ভিডিও ডাউনলোড ও গ্রিড তৈরি
+                video_path = await pyro_bot.download_media(msg)
+                grid_path = f"grid_blink_{random.randint(1000,9999)}.jpg"
+                
+                res, duration_sec = await create_screenshot_grid(video_path, grid_path)
+                duration_str = get_duration_display(duration_sec) if res else "0m"
+
+                if res:
+                    # গ্রিড ফটো আপলোড
+                    with open(grid_path, 'rb') as f:
+                        photo_msg = await bot.send_photo(CHANNEL_ID, photo=types.BufferedInputFile(f.read(), filename="grid.jpg"), 
+                        caption=f"🎥 <b>নতুন মুভি যুক্ত হয়েছে!</b>\n\n🎬 নাম: <b>{title}</b>", parse_mode="HTML",
+                        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 মুভিটি দেখুন", url=f"https://t.me/{(await bot.get_me()).username}?start=new")]]))
+                        photo_id = photo_msg.photo[-1].file_id
+
+                    # ডাটাবেসে মুভি সেভ
+                    await db.movies.insert_one({
+                        "title": title, "photo_id": photo_id, "file_id": (msg.video.file_id if msg.video else msg.document.file_id), 
+                        "file_type": "video", "clicks": 0, "duration": duration_str, "created_at": datetime.datetime.utcnow()
+                    })
+                    success_count += 1
+                
+                # ক্লিনআপ
+                if os.path.exists(video_path): os.remove(video_path)
+                if os.path.exists(grid_path): os.remove(grid_path)
+                
+                # রেট লিমিট এড়াতে সামান্য বিরতি
+                await asyncio.sleep(1.5)
+                
+        except Exception:
+            continue
+
+    await bot.send_message(admin_id, f"✅ <b>ব্লিংক ইন্ডেক্স সম্পন্ন!</b>\nমোট <b>{success_count}</b>টি ভিডিও সফলভাবে আপলোড হয়েছে।", parse_mode="HTML")
 
 # ==========================================
 # ১. মেইন ওনার (Owner) ও অ্যাডমিন কমান্ড সমূহ (নতুন সহ)
@@ -264,6 +332,22 @@ async def set_foot_ad(m: types.Message):
         await m.answer("✅ ফুটার ব্যানার অ্যাড কোড আপডেট হয়েছে।")
     except: await m.answer("⚠️ নিয়ম: `/setfoot [অ্যাড কোড]`")
 
+# --- নতুন ব্লিংক কমান্ড (চ্যানেলের লাস্ট পোস্ট লিঙ্ক দিলে ১ থেকে ইন্ডেক্স করবে) ---
+@dp.message(Command("blink"))
+async def blink_cmd_handler(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        link = m.text.split(" ", 1)[1]
+        chat_id, last_id = parse_blink_link(link)
+        if not chat_id or not last_id:
+            return await m.answer("⚠️ <b>ভুল লিঙ্ক!</b> সঠিক উদাহরণ: <code>/blink https://t.me/your_channel/1234</code>", parse_mode="HTML")
+        
+        # ব্যাকগ্রাউন্ডে প্রসেস শুরু করা
+        asyncio.create_task(blink_worker(chat_id, last_id, m.from_user.id))
+        await m.answer("⏳ চ্যানেলের আইডি 1 থেকে শুরু করে সব ভিডিও ইন্ডেক্স করা হচ্ছে। সম্পন্ন হলে জানানো হবে।")
+    except:
+        await m.answer("⚠️ নিয়ম: <code>/blink [চ্যানেলের শেষ পোস্ট লিঙ্ক]</code>", parse_mode="HTML")
+
 # ==========================================
 # ২. বটের সাধারণ অ্যাডমিন কমান্ড (আপনার আগের কোড)
 # ==========================================
@@ -281,7 +365,8 @@ async def start_cmd(message: types.Message):
             "⚙️ <b>পোস্ট কমান্ড:</b>\n"
             "🔹 <code>/post</code> - ম্যানুয়াল আপলোড (আগের মত)\n"
             "🔹 <code>/new</code> - অটো স্ক্রিনশট আপলোড (নাম দিয়ে)\n"
-            "🔹 <code>/auto</code> - ফুল অটো (সিরিয়াল নাম + স্ক্রিনশট)\n\n"
+            "🔹 <code>/auto</code> - ফুল অটো (সিরিয়াল নাম + স্ক্রিনশট)\n"
+            "🔹 <code>/blink</code> - চ্যানেল ফুল ইন্ডেক্স (আইডি ১ থেকে)\n\n"
             "⚙️ <b>সাধারণ কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
             "🔸 সাইট নেম: <code>/setsitename [নাম]</code>\n"
